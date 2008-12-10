@@ -319,12 +319,10 @@ re-login to the current url."
   (interactive "P")
   (let ((confluence-input-url (cf-get-url)))
     (if arg
-        (progn
-          (cf-set-struct-value 'confluence-login-token-alist
-                               confluence-input-url nil)
-          (cf-set-struct-value 'confluence-login-credential-alist
-                               confluence-input-url (cons username password))))
-    ;; we may need to prompt for a password while already at the minibuffer prompt, so enable recursive minibuffers
+        (cf-set-struct-value 'confluence-login-token-alist
+                             confluence-input-url nil))
+    ;; we may need to prompt for a password while already at the minibuffer
+    ;; prompt, so enable recursive minibuffers
     (let ((enable-recursive-minibuffers t)
           (credentials (and confluence-save-credentials
                             (cf-get-struct-value confluence-login-credential-alist confluence-input-url)))
@@ -2099,6 +2097,7 @@ bullets if DEPTH is negative (does nothing if DEPTH is 0)."
 ;; - add "backup" support (save to restore from local file)?
 ;; - extended link support
 ;;   - [$id] links?
+;; - add more editing helpers (insert bold, italics, etc.), insert anchor link
 ;; - add more label support?
 ;; - change page preview to use async like attachments (xml parsing issues)
 ;; - add more structured browsing?
