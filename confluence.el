@@ -222,6 +222,12 @@ possible), otherwise images will be treated the same as other attachments."
   :group 'confluence
   :type 'boolean)
 
+(defcustom confluence-save-credentials nil
+  "If not nil, username and password will be saved after entry for subsequent re-login (in memory only).  This is
+useful for long running emacs sessions."
+  :group 'confluence
+  :type 'boolean)
+
 (defvar confluence-coding-prefix-alist (list (cons (confluence-coding-system-base 'utf-16-be) "\376\377")
                                              (cons (confluence-coding-system-base 'utf-16-le) "\377\376"))
   "Extra prefix necessary when decoding a string in a given coding system (not necessary for all coding systems).  The
@@ -240,6 +246,9 @@ for most coding systems.")
 
 (defvar confluence-login-token-alist nil
   "AList of 'url' -> 'token' login information.")
+
+(defvar confluence-login-credential-alist nil
+  "AList of 'url' -> ('username' . 'password') login information, if .")
 
 (defvar confluence-path-history nil
   "History list of paths accessed.")
@@ -308,25 +317,45 @@ for most coding systems.")
   "Logs into the current confluence url, if necessary.  With ARG, forces
 re-login to the current url."
   (interactive "P")
-  (if arg
-      (cf-set-struct-value 'confluence-login-token-alist
-                           (cf-get-url) nil))
-  ;; we may need to prompt for a password while already at the minibuffer prompt, so enable recursive minibuffers
-  (let ((enable-recursive-minibuffers t)
-        (cur-token (cf-get-struct-value confluence-login-token-alist
-                                        (cf-get-url))))
-    (while (not cur-token)
-      (condition-case err
-          (progn
-            (setq cur-token
-                  (cf-rpc-execute-internal 
-                   'confluence1.login
-                   (read-string (format "Confluence Username [%s]: " user-login-name) nil nil user-login-name t)
-                   (read-passwd "Confluence Password: ")))
-            (cf-set-struct-value 'confluence-login-token-alist
-                                 (cf-get-url) cur-token))
-        (error (message "Failed logging in: %s" (error-message-string err)))))
-    cur-token))
+  (let ((confluence-input-url (cf-get-url)))
+    (if arg
+        (progn
+          (cf-set-struct-value 'confluence-login-token-alist
+                               confluence-input-url nil)
+          (cf-set-struct-value 'confluence-login-credential-alist
+                               confluence-input-url (cons username password))))
+    ;; we may need to prompt for a password while already at the minibuffer prompt, so enable recursive minibuffers
+    (let ((enable-recursive-minibuffers t)
+          (credentials (and confluence-save-credentials
+                            (cf-get-struct-value confluence-login-credential-alist confluence-input-url)))
+          (cur-token (cf-get-struct-value confluence-login-token-alist
+                                          confluence-input-url))
+          (username nil)
+          (password nil))
+      (while (not cur-token)
+        (condition-case err
+            (progn
+              (setq cur-token
+                    (cf-rpc-execute-internal 
+                     'confluence1.login
+                     (setq username
+                           (or (car-safe credentials)
+                               (read-string (format "Confluence Username [%s]: " user-login-name)
+                                            nil nil user-login-name t)))
+                     (setq password
+                           (or (cdr-safe credentials)
+                               (read-passwd "Confluence Password: ")))))
+              (cf-set-struct-value 'confluence-login-token-alist
+                                   confluence-input-url cur-token)
+              (if confluence-save-credentials 
+                  (cf-set-struct-value 'confluence-login-credential-alist
+                                       confluence-input-url (cons username password))))
+          (error
+           (progn
+             (message "Failed logging in: %s" (error-message-string err))
+             ;; clear any saved credentials (so re-attempts prompt for new info)
+             (setq credentials nil)))))
+      cur-token)))
 
 (defun confluence-get-page (&optional page-name space-name anchor-name)
   "Loads a confluence page for the given SPACE-NAME and PAGE-NAME
