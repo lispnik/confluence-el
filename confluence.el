@@ -553,6 +553,13 @@ PAGE-NAME and loads it into a new buffer."
                              rel-page-names t)
              space-name)))))))
 
+(defun confluence-browse-page ()
+  "Runs `browse-url' with the url of the current confluence page."
+  (interactive)
+  (let ((url (cf-get-struct-value confluence-page-struct "url")))
+    (if (cf-string-notempty url)
+        (browse-url url))))
+
 (defmacro cf-destructure-tags-stack-entry (entry &rest body)
   "Destructure a tags-stack tuple.  NB this is not a hygenic
 macro, it intentionally binds named variables that match the
@@ -1236,14 +1243,15 @@ saved to this file name and not viewed."
 		(asynch-buffer nil)
                 (download-error nil)
                 (tmp-coding-system (coding-system-base (cf-get-struct-value confluence-coding-alist (cf-get-url) 'utf-8)))
-                (attachment-version nil))
+                (attachment-version nil)
+                (attachment-struct nil))
 
+    ;; grab attachment struct
+    (setq attachment-struct (with-quiet-rpc (cf-get-attachment-info page-id file-name)))
+    
     ;; find current version of attachment (this is hacked cause the rpc api
     ;; does not provide this directly.  yes, this is a bug)
-    (let ((attachment-url (with-quiet-rpc
-                           (cf-get-struct-value 
-                            (cf-get-attachment-info page-id file-name)
-                            "url"))))
+    (let ((attachment-url (cf-get-struct-value attachment-struct "url")))
       (if (string-match "[?&]version=\\([0-9]+\\)" attachment-url)
           (setq attachment-version (match-string 1 attachment-url))
         (error "Could not find version for attachment %s" file-name)))
@@ -1256,6 +1264,8 @@ saved to this file name and not viewed."
       ;; save load-info so we can revert the buffer using our custom
       ;; revert-buffer-function and push/pop
       (setq confluence-load-info load-info)
+      ;; set page-struct w/ url only, so confluence-browse-page will work
+      (setq confluence-page-struct (list (cons "url" (cf-get-struct-value attachment-struct "url"))))
       (make-local-variable 'revert-buffer-function)
       (setq revert-buffer-function 'cf-revert-page)
       (if (not buffer-file-name)
@@ -1996,6 +2006,7 @@ set by `cf-rpc-execute-internal')."
     (define-key map "*" 'confluence-pop-tag-stack)
     (define-key map "v" 'confluence-preview)
     (define-key map "a" 'confluence-get-attachment)
+    (define-key map "b" 'confluence-browse-page)
     (define-key map "x" 'confluence-get-related-page)
     (define-key map "la" 'confluence-add-label)
     (define-key map "lr" 'confluence-remove-label)
