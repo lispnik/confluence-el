@@ -464,16 +464,20 @@ attachment call (based on `confluence-default-space-alist')."
   "Moves to the given ANCHOR-NAME in the current confluence buffer."
   (interactive)
   (if (not anchor-name)
-      (setq anchor-name (cf-read-string-simple "Confluence Anchor Name: " 
-                                               nil 'cf-complete-anchor-name)))
-  (let ((anchor-position nil))
-    (save-excursion
-      (goto-char (point-min))
-      (setq anchor-position
-            (search-forward (concat "{anchor:" anchor-name "}") nil t)))
-    (if anchor-position
-        (goto-char anchor-position)
-      (message "Could not find anchor %s in page..." anchor-name))))
+      (let ((cur-anchors (cf-get-page-anchors)))
+            (if (= (length cur-anchors) 0)
+                (message "Current page has no anchors...")
+              (setq anchor-name (cf-read-string-simple "Confluence Anchor Name: " 
+                                                       nil cur-anchors t)))))
+  (if (cf-string-notempty anchor-name)
+      (let ((anchor-position nil))
+        (save-excursion
+          (goto-char (point-min))
+          (setq anchor-position
+                (search-forward (concat "{anchor:" anchor-name "}") nil t)))
+        (if anchor-position
+            (goto-char anchor-position)
+          (message "Could not find anchor %s in page..." anchor-name)))))
 
 (defun confluence-create-page (&optional page-name space-name)
   "Creates a new confluence page for the given SPACE-NAME and
@@ -678,7 +682,7 @@ latest version of that page saved in confluence."
       (progn
         (if (not label-name)
             (setq label-name
-                  (cf-read-string-simple "New Confluence Label: " 'confluence-label-history 'cf-complete-label-name)))
+                  (cf-read-string-simple "New Confluence Label: " 'confluence-label-history 'cf-complete-recent-label-name)))
         (if (cf-string-notempty label-name)
             (cf-rpc-add-label label-name confluence-page-id)))))
 
@@ -1634,6 +1638,15 @@ given STRUCT-VAR."
       (cons (cf-get-struct-value el key) t))
    result-list))
 
+(defun cf-get-page-anchors ()
+  "Gets the anchors in the current page."
+  (let ((anchors nil))
+    (save-excursion
+      (goto-char (point-min))
+      (while (re-search-forward "{anchor:\\([^{}\n]+\\)}" nil t)
+        (push (cons (match-string 1) t) anchors)))
+    anchors))
+
 (defun cf-complete-space-name (comp-str pred comp-flag)
   "Completion function for confluence spaces."
   (if (not current-other-completions)
@@ -1707,22 +1720,12 @@ given STRUCT-VAR."
               (concat space-name "/" el)) page-comp-result))
          (t page-comp-result))))))
 
-(defun cf-complete-label-name (comp-str pred comp-flag)
+(defun cf-complete-recent-label-name (comp-str pred comp-flag)
   "Completion function for confluence labels."
   (if (not current-completions)
       (with-current-buffer completion-buffer
         (setq current-completions (cf-result-to-completion-list (cf-rpc-get-recent-labels
                                                                  confluence-max-completion-results) "name"))))
-  (cf-complete comp-str pred comp-flag current-completions))
-
-(defun cf-complete-anchor-name (comp-str pred comp-flag)
-  "Completion function for confluence anchors."
-  (if (not current-completions)
-      (save-excursion
-        (with-current-buffer completion-buffer
-          (goto-char (point-min))
-          (while (re-search-forward "{anchor:\\([^{}\n]+\\)}" nil t)
-            (push (cons (match-string 1) t) current-completions)))))
   (cf-complete comp-str pred comp-flag current-completions))
 
 (defun cf-complete (comp-str pred comp-flag comp-table)
@@ -1942,7 +1945,7 @@ set by `cf-rpc-execute-internal')."
      (1 'font-lock-constant-face))
    
    ;; links
-   '("\\(\\[\\)\\([^|\n]*\\)[|]\\([^]\n]+\\)\\(\\]\\)"
+   '("\\(\\[\\)\\([^]|\n]*\\)[|]\\([^]\n]+\\)\\(\\]\\)"
      (1 'font-lock-constant-face)
      (2 'font-lock-string-face)
      (3 'underline)
@@ -2081,6 +2084,130 @@ bullets if DEPTH is negative (does nothing if DEPTH is 0)."
                       ""))))
         (delete-region tmp-point (point))
         (insert-before-markers indent-str))))))
+
+;; macro for determining if region is active, should work in gnu emacs and
+;; xemacs.
+(defsubst cf-region-is-active ()
+  ;; Return t when the region is active.  The determination of region
+  ;; activeness is different in both Emacs and XEmacs.
+  (cond
+   ;; Emacs
+   ((boundp 'mark-active) mark-active)
+   ;; XEmacs
+   ((and (fboundp 'region-active-p)
+         (boundp 'zmacs-regions)
+         zmacs-regions)
+    (region-active-p))
+   ;; fallback; shouldn't get here
+   (t (mark t))))
+
+(defun cf-wrap-text (pre-wrap-str &optional post-wrap-str)
+  "Wraps the current region (if active) or current word with PRE-WRAP-STR and
+POST-WRAP-STR.  If POST-WRAP-STR is nil, PRE-WRAP-STR is reused."
+  (save-excursion
+    (let ((beg nil)
+          (end nil)
+          (wrap-str nil)
+          (end-marker (make-marker)))
+      (if (cf-region-is-active)
+          (progn
+            (setq beg (region-beginning))
+            (setq end (region-end))
+            (deactivate-mark))
+        (progn
+          (backward-word 1)
+          (setq beg (point))
+          (forward-word 1)
+          (setq end (point))))
+      (set-marker end-marker end)
+      (goto-char beg)
+      (insert-before-markers pre-wrap-str)
+      (goto-char end-marker)
+      (insert-before-markers (or post-wrap-str pre-wrap-str))
+      (set-marker end-marker nil))))
+
+(defun confluence-boldify-text ()
+  "Wraps the current region/word with *bold* marks."
+  (interactive)
+  (cf-wrap-text "*"))
+
+(defun confluence-italicize-text ()
+  "Wraps the current region/word with _italics_ marks."
+  (interactive)
+  (cf-wrap-text "_"))
+
+(defun confluence-strike-text ()
+  "Wraps the current region/word with -strikethrough- marks."
+  (interactive)
+  (cf-wrap-text "-"))
+
+(defun confluence-underline-text ()
+  "Wraps the current region/word with +underline+ marks."
+  (interactive)
+  (cf-wrap-text "+"))
+
+(defun confluence-monospace-text ()
+  "Wraps the current region/word with {{monospace}} marks."
+  (interactive)
+  (cf-wrap-text "{{" "}}"))
+
+(defun confluence-superscript-text ()
+  "Wraps the current region/word with ^superscript^ marks."
+  (interactive)
+  (cf-wrap-text "^"))
+
+(defun confluence-subscript-text ()
+  "Wraps the current region/word with ~subscript~ marks."
+  (interactive)
+  (cf-wrap-text "~"))
+
+(defun confluence-cite-text ()
+  "Wraps the current region/word with ??citation?? marks."
+  (interactive)
+  (cf-wrap-text "??"))
+
+(defun confluence-linkify-text ()
+  "Wraps the current region/word as a [link]."
+  (interactive)
+  (cf-wrap-text "[" "]"))
+
+(defun confluence-linkify-anchor-text (&optional anchor-name)
+  "Wraps the current region/word as an anchor [link|#ANCHOR-NAME]."
+  (interactive)
+  (if (not anchor-name)
+      (let ((cur-anchors (cf-get-page-anchors)))
+        (setq anchor-name (cf-read-string-simple "Confluence Anchor Name: " 
+                                                 nil cur-anchors))))
+  (cf-wrap-text "[" (concat "|#" (or anchor-name "") "]")))
+
+(defun confluence-linkify-attachment-text (&optional file-name)
+  "Wraps the current region/word as an attachment [link|#FILE-NAME]."
+  (interactive)
+  (if (not file-name)
+      (let ((cur-attachments 
+             (if confluence-page-id
+                 (with-quiet-rpc
+                  (cf-result-to-completion-list
+                   (cf-rpc-get-attachments confluence-page-id) "fileName"))
+               nil)))
+        (setq file-name (cf-read-string-simple "Confluence attachment file name: " 'confluence-attachment-history cur-attachments))))
+  (cf-wrap-text "[" (concat "|^" (or file-name "") "]")))
+
+(defun confluence-embed-text ()
+  "Wraps the current region/word as an embedded content !link!."
+  (interactive)
+  (cf-wrap-text "!"))
+
+(defun confluence-codify-text ()
+  "Wraps the current region/word as a {code}code block{code}."
+  (interactive)
+  (cf-wrap-text "{code:}\n" "\n{code}"))
+
+(defun confluence-insert-anchor (anchor-name)
+  "Inserts an {anchor}."
+  (interactive "MNew AnchorName: ")
+  (insert "{anchor:" anchor-name "}"))
+
 
 (define-derived-mode confluence-mode text-mode "Confluence"
   "Set major mode for editing Confluence Wiki pages."
