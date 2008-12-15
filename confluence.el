@@ -1,10 +1,13 @@
-;;; confluence.el --- Emacs mode for interacting with confluence wikie
+;;; confluence.el --- Emacs mode for interacting with confluence wikis
 
 ;; Copyright (C) 2008  Free Software Foundation, Inc.
 
 ;; Author: James Ahlborn
 ;; Author: Kyle Burton <kyle.burton@gmail.com>
+;; URL: http://code.google.com/p/confluence-el/
 ;; Keywords: confluence, wiki, xmlrpc
+;; Version: 1.0
+;; Package-Requires: (("xml-rpc"))
 
 ;; This file is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -33,15 +36,16 @@
 ;; INSTALLATION 
 ;;
 ;; You must set confluence-url in your .emacs file before using the
-;; functions in this module.
+;; functions in this module.  It's best to place confluence.el and
+;; xml-rpc.el on your load path; often ~/.emacs.d or ~/elisp.
 ;;
 ;; Some examples:
 ;;
 ;;   ;; loading xml-rpc.el may not be necessary, it depends on your
-;;   ;; installed version of Emacs, it was necessary on 22.1.1
+;;   ;; installed version of Emacs, it was necessary on 22.1.1.
+;;   ;; Both xml-rpc.el and confluence.el should be on your load-path.
 ;;
-;;   (load (expand-file-name "~/software/emacs/confluence-el/xml-rpc.el"))
-;;   (load (expand-file-name "~/software/emacs/confluence-el/confluence.el"))
+;;   (require 'confluence)
 ;;   (setq confluence-url "http://intranet/confluence/rpc/xmlrpc")
 ;;
 ;; USING CONFLUENCE MODE
@@ -85,8 +89,7 @@
 ;;
 ;; EXAMPLE .emacs CONFIGURATION
 ;;
-;; (load (expand-file-name "~/software/emacs/confluence-el/xml-rpc.el"))
-;; (load (expand-file-name "~/software/emacs/confluence-el/confluence.el"))
+;; (require 'confluence)
 ;;
 ;; ;; note, all customization must be in *one* custom-set-variables block
 ;; (custom-set-variables
