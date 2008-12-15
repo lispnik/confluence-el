@@ -355,6 +355,7 @@ re-login to the current url."
              (setq credentials nil)))))
       cur-token)))
 
+;;;###autoload
 (defun confluence-get-page (&optional page-name space-name anchor-name)
   "Loads a confluence page for the given SPACE-NAME and PAGE-NAME
 into a buffer (if not already loaded) and switches to it.
@@ -731,6 +732,7 @@ latest version of that page saved in confluence."
                         confluence-tag-stack)))
         (kill-buffer (current-buffer)))))
 
+;;;###autoload
 (defun confluence-search (&optional query space-name)
   "Runs a confluence search for QUERY, optionally restricting the results to
 the given SPACE-NAME."
