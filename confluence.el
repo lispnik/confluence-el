@@ -7,7 +7,7 @@
 ;; URL: http://code.google.com/p/confluence-el/
 ;; Keywords: confluence, wiki, xmlrpc
 ;; Version: 1.1
-;; Package-Requires: (("xml-rpc"))
+;; Package-Requires: ((xml-rpc "1.6.4"))
 
 ;; This file is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
