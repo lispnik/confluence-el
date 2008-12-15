@@ -1996,27 +1996,6 @@ set by `cf-rpc-execute-internal')."
   "Default expressions to highlight in Confluence modes.")
 
 
-(defvar confluence-prefix-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map "f" 'confluence-get-page)
-    (define-key map "c" 'confluence-create-page)
-    (define-key map "=" 'confluence-ediff-current-page)
-    (define-key map "m" 'confluence-ediff-merge-current-page)
-    (define-key map "p" 'confluence-get-parent-page)
-    (define-key map "r" 'confluence-rename-page)
-    (define-key map "s" 'confluence-search)
-    (define-key map "." 'confluence-get-page-at-point)
-    (define-key map "*" 'confluence-pop-tag-stack)
-    (define-key map "v" 'confluence-preview)
-    (define-key map "a" 'confluence-get-attachment)
-    (define-key map "b" 'confluence-browse-page)
-    (define-key map "x" 'confluence-get-related-page)
-    (define-key map "la" 'confluence-add-label)
-    (define-key map "lr" 'confluence-remove-label)
-    (define-key map "lg" 'confluence-get-labels)
-    map)
-  "Keybinding prefix map which can be bound for common functions in confluence mode.")
-
 (defun confluence-newline-and-indent ()
   "Inserts a newline and indents using the previous indentation.
 Supports lists, tables, and headers."
@@ -2085,11 +2064,10 @@ bullets if DEPTH is negative (does nothing if DEPTH is 0)."
         (delete-region tmp-point (point))
         (insert-before-markers indent-str))))))
 
-;; macro for determining if region is active, should work in gnu emacs and
-;; xemacs.
 (defsubst cf-region-is-active ()
-  ;; Return t when the region is active.  The determination of region
-  ;; activeness is different in both Emacs and XEmacs.
+  "Return t when the region is active."
+  ;; The determination of region activeness is different in both Emacs and
+  ;; XEmacs.
   (cond
    ;; Emacs
    ((boundp 'mark-active) mark-active)
@@ -2101,9 +2079,30 @@ bullets if DEPTH is negative (does nothing if DEPTH is 0)."
    ;; fallback; shouldn't get here
    (t (mark t))))
 
-(defun cf-wrap-text (pre-wrap-str &optional post-wrap-str)
+(defsubst cf-hard-newline ()
+  "Return newline string, including hard property if hard newlines are being
+used."
+  (if use-hard-newlines
+      (propertize "\n" 'hard 't)
+    "\n"))
+
+(defun cf-format-block-tag (tag-text tag-point)
+  "Formats a block tag with appropriate newlines based on the insertion
+point."
+  (concat
+   (if (equal (char-before tag-point) ?\n)
+       ""
+     (cf-hard-newline))
+   tag-text
+   (if (equal (char-after tag-point) ?\n)
+       ""
+     (cf-hard-newline))))
+
+(defun cf-wrap-text (pre-wrap-str &optional post-wrap-str are-block-tags)
   "Wraps the current region (if active) or current word with PRE-WRAP-STR and
-POST-WRAP-STR.  If POST-WRAP-STR is nil, PRE-WRAP-STR is reused."
+POST-WRAP-STR.  If POST-WRAP-STR is nil, PRE-WRAP-STR is reused.  If
+ARE-BLOCK-TAGS is not nil, the wrap strings will be formatted using
+`cf-format-block-tag' before insertion."
   (save-excursion
     (let ((beg nil)
           (end nil)
@@ -2119,6 +2118,10 @@ POST-WRAP-STR.  If POST-WRAP-STR is nil, PRE-WRAP-STR is reused."
           (setq beg (point))
           (forward-word 1)
           (setq end (point))))
+      (if are-block-tags
+          (setq pre-wrap-str (cf-format-block-tag pre-wrap-str beg)
+                post-wrap-str (cf-format-block-tag (or post-wrap-str 
+                                                       pre-wrap-str) end)))
       (set-marker end-marker end)
       (goto-char beg)
       (insert-before-markers pre-wrap-str)
@@ -2146,11 +2149,6 @@ POST-WRAP-STR.  If POST-WRAP-STR is nil, PRE-WRAP-STR is reused."
   (interactive)
   (cf-wrap-text "+"))
 
-(defun confluence-monospace-text ()
-  "Wraps the current region/word with {{monospace}} marks."
-  (interactive)
-  (cf-wrap-text "{{" "}}"))
-
 (defun confluence-superscript-text ()
   "Wraps the current region/word with ^superscript^ marks."
   (interactive)
@@ -2166,10 +2164,39 @@ POST-WRAP-STR.  If POST-WRAP-STR is nil, PRE-WRAP-STR is reused."
   (interactive)
   (cf-wrap-text "??"))
 
-(defun confluence-linkify-text ()
+(defun confluence-linkify-text (&optional link-url)
   "Wraps the current region/word as a [link]."
-  (interactive)
-  (cf-wrap-text "[" "]"))
+  (interactive "MURL: ")
+  (cf-wrap-text "[" (concat (if (cf-string-notempty link-url)
+                                (concat "|" link-url)
+                              "") "]")))
+
+(defun confluence-codify-text (&optional arg)
+  "Wraps the current region/word as {{monospace}} if single-line, otherwise
+as a {code}code block{code}."
+  (interactive "P")
+  (let ((pre-str "{{")
+        (post-str "}}")
+        (are-block-tags nil))
+    (if (or arg
+            (and (cf-region-is-active)
+                 (save-excursion
+                   (let ((beg (region-beginning))
+                         (end (region-end))
+                         (found-newline nil))
+                     (goto-char beg)
+                     ;; search for a non-soft newline in the current region
+                     (while (and (search-forward "\n" end 'silent)
+                                 (setq found-newline t)
+                                 use-hard-newlines
+                                 (not (get-text-property (match-beginning 0)
+                                                         'hard))
+                                 (setq found-newline 'soft)))
+                     (eq found-newline t)))))
+        (setq pre-str "{code:}"
+              post-str "{code}"
+              are-block-tags t))
+    (cf-wrap-text pre-str post-str are-block-tags)))
 
 (defun confluence-linkify-anchor-text (&optional anchor-name)
   "Wraps the current region/word as an anchor [link|#ANCHOR-NAME]."
@@ -2198,15 +2225,63 @@ POST-WRAP-STR.  If POST-WRAP-STR is nil, PRE-WRAP-STR is reused."
   (interactive)
   (cf-wrap-text "!"))
 
-(defun confluence-codify-text ()
-  "Wraps the current region/word as a {code}code block{code}."
-  (interactive)
-  (cf-wrap-text "{code:}\n" "\n{code}"))
-
 (defun confluence-insert-anchor (anchor-name)
   "Inserts an {anchor}."
   (interactive "MNew AnchorName: ")
   (insert "{anchor:" anchor-name "}"))
+
+(defun confluence-insert-horizontal-rule ()
+  "Inserts horizontal rule."
+  (interactive)
+  (insert (cf-format-block-tag 
+           (concat (cf-hard-newline) "----" (cf-hard-newline)) 
+           (point))))
+
+(defvar confluence-format-prefix-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map "i" 'confluence-italicize-text)
+    (define-key map "c" 'confluence-codify-text)
+    (define-key map "b" 'confluence-boldify-text)
+    (define-key map "l" 'confluence-linkify-text)
+    (define-key map "u" 'confluence-underline-text)
+    (define-key map "a" 'confluence-linkify-anchor-text)
+    (define-key map "t" 'confluence-linkify-attachment-text)
+    (define-key map "A" 'confluence-insert-anchor)
+    (define-key map "e" 'confluence-embed-text)
+    (define-key map "h" 'confluence-insert-horizontal-rule)
+    (define-key map "s" 'confluence-superscript-text)
+    (define-key map "S" 'confluence-subscript-text)
+    (define-key map "C" 'confluence-cite-text)
+    (define-key map "x" 'confluence-strike-text)
+    map)
+  "Keybinding prefix map which can be bound for common formatting functions in
+confluence mode.")
+
+(defvar confluence-prefix-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map "f" 'confluence-get-page)
+    (define-key map "c" 'confluence-create-page)
+    (define-key map "=" 'confluence-ediff-current-page)
+    (define-key map "m" 'confluence-ediff-merge-current-page)
+    (define-key map "p" 'confluence-get-parent-page)
+    (define-key map "r" 'confluence-rename-page)
+    (define-key map "s" 'confluence-search)
+    (define-key map "." 'confluence-get-page-at-point)
+    (define-key map "*" 'confluence-pop-tag-stack)
+    (define-key map "v" 'confluence-preview)
+    (define-key map "a" 'confluence-get-attachment)
+    (define-key map "b" 'confluence-browse-page)
+    (define-key map "x" 'confluence-get-related-page)
+    (define-key map "j" confluence-format-prefix-map)
+    (define-key map "l"
+      (let ((label-map (make-sparse-keymap)))
+        (define-key label-map "a" 'confluence-add-label)
+        (define-key label-map "r" 'confluence-remove-label)
+        (define-key label-map "g" 'confluence-get-labels)        
+        label-map))
+    map)
+  "Keybinding prefix map which can be bound for common functions in confluence
+mode.")
 
 
 (define-derived-mode confluence-mode text-mode "Confluence"
@@ -2235,7 +2310,6 @@ POST-WRAP-STR.  If POST-WRAP-STR is nil, PRE-WRAP-STR is reused."
 ;; - add "backup" support (save to restore from local file)?
 ;; - extended link support
 ;;   - [$id] links?
-;; - add more editing helpers (insert bold, italics, etc.), insert anchor link
 ;; - add more label support?
 ;; - change page preview to use async like attachments (xml parsing issues)
 ;; - add more structured browsing?
