@@ -6,7 +6,7 @@
 ;; Author: Kyle Burton <kyle.burton@gmail.com>
 ;; URL: http://code.google.com/p/confluence-el/
 ;; Keywords: confluence, wiki, xmlrpc
-;; Version: 1.0
+;; Version: 1.1
 ;; Package-Requires: (("xml-rpc"))
 
 ;; This file is free software; you can redistribute it and/or modify
