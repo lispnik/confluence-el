@@ -946,6 +946,13 @@ SPACE-NAME."
   "Executes a confluence 'getAttachments' rpc call with page id."
   (cf-rpc-execute 'confluence1.getAttachments page-id))
 
+(defun cf-rpc-get-attachment (page-id file-name &optional version)
+  "Executes a confluence 'getAttachment' rpc call with page id, file name and
+optional version number."
+  ;; "0" gets the latest version
+  (cf-rpc-execute 'confluence1.getAttachment page-id file-name 
+                  (or version "0")))
+
 (defun cf-rpc-get-page-children (page-id)
   "Executes a confluence 'getChildren' rpc call with page id."
   (cf-rpc-execute 'confluence1.getChildren page-id))
@@ -1252,18 +1259,10 @@ saved to this file name and not viewed."
 		(asynch-buffer nil)
                 (download-error nil)
                 (tmp-coding-system (coding-system-base (cf-get-struct-value confluence-coding-alist (cf-get-url) 'utf-8)))
-                (attachment-version nil)
                 (attachment-struct nil))
 
     ;; grab attachment struct
-    (setq attachment-struct (with-quiet-rpc (cf-get-attachment-info page-id file-name)))
-    
-    ;; find current version of attachment (this is hacked cause the rpc api
-    ;; does not provide this directly.  yes, this is a bug)
-    (let ((attachment-url (cf-get-struct-value attachment-struct "url")))
-      (if (string-match "[?&]version=\\([0-9]+\\)" attachment-url)
-          (setq attachment-version (match-string 1 attachment-url))
-        (error "Could not find version for attachment %s" file-name)))
+    (setq attachment-struct (with-quiet-rpc (cf-rpc-get-attachment page-id file-name)))
     
     ;; prep result buffer
     (with-current-buffer result-buffer
@@ -1295,7 +1294,7 @@ saved to this file name and not viewed."
                (setq retrieval-done t
                      asynch-buffer (current-buffer))))
            'confluence1.getAttachmentData 
-           page-id file-name attachment-version))
+           page-id file-name "0")) ;; "0" gets the latest version
 
     ;; wait for download to finish (this logic ripped from
     ;; url-retrieve-synchronously)
@@ -1434,16 +1433,6 @@ using the DECODE-CODING-SYSTEM if necessary)."
                                     decode-coding-system 1)))
           (cf-url-decode-entities-in-buffer result-buffer)))
       (set-buffer-modified-p nil))))
-
-(defun cf-get-attachment-info (page-id file-name)
-  "Retrieves the attachment info for the attachment with the given FILE-NAME
-on page PAGE-ID."
-  (catch 'attachment-el
-    (dolist (attachment (cf-rpc-get-attachments page-id))
-      (if (equal (cf-get-struct-value attachment "fileName") file-name)
-          (throw 'attachment-el attachment)))
-    (error "Could not find attachment with name %s" file-name)))
-
 
 (defun cf-format-attachment-buffer-name (file-name page-name space-name)
   "Creates a buffer name for an attachment with the given info."
