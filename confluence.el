@@ -478,7 +478,18 @@ attachment call (based on `confluence-default-space-alist')."
         (save-excursion
           (goto-char (point-min))
           (setq anchor-position
-                (search-forward (concat "{anchor:" anchor-name "}") nil t)))
+                (search-forward (concat "{anchor:" anchor-name "}") nil t))
+          ;; headings are also implicit anchors
+          (if (not anchor-position)
+              (setq anchor-position
+                    (re-search-forward (concat "^h[1-9][.]\\s-+" (regexp-quote anchor-name)) nil t)))
+          ;; 'top' and 'bottom' can be used as anchors in some situations
+          (if (and (not anchor-position)
+                   (string= "top" anchor-name))
+              (setq anchor-position (point-min)))
+          (if (and (not anchor-position)
+                   (string= "bottom" anchor-name))
+              (setq anchor-position (point-max))))
         (if anchor-position
             (goto-char anchor-position)
           (message "Could not find anchor %s in page..." anchor-name)))))
@@ -1638,6 +1649,10 @@ given STRUCT-VAR."
     (save-excursion
       (goto-char (point-min))
       (while (re-search-forward "{anchor:\\([^{}\n]+\\)}" nil t)
+        (push (cons (match-string 1) t) anchors))
+      ;; headings are also implicit anchors
+      (goto-char (point-min))
+      (while (re-search-forward "^h[1-9][.]\\s-+\\(.+?\\)\\s-*$" nil t)
         (push (cons (match-string 1) t) anchors)))
     anchors))
 
@@ -1925,13 +1940,13 @@ set by `cf-rpc-execute-internal')."
      (1 '(:strike-through t) prepend))
 
    ;; headings
-   '("^h1[.] \\(.*\\)$"
+   '("^h1[.] \\(.*?\\)\\s-*$"
      (1 '(bold underline) prepend))
-   '("^h2[.] \\(.*\\)$"
+   '("^h2[.] \\(.*?\\)\\s-*$"
      (1 '(bold italic underline) prepend))
-   '("^h3[.] \\(.*\\)$"
+   '("^h3[.] \\(.*?\\)\\s-*$"
      (1 '(italic underline) prepend))
-   '("^h[4-9][.] \\(.*\\)$"
+   '("^h[4-9][.] \\(.*?\\)\\s-*$"
      (1 'underline prepend))
 
    ;; bullet points
