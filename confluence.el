@@ -302,6 +302,17 @@ for most coding systems.")
 (defconst confluence-search-types (list (cons "content" t) (cons "title" t) (cons "label" t))
   "Supported search types.")
 
+(defconst confluence-xml-substitute-special (fboundp 'xml-substitute-special)
+  "Whether or not confluence can override `xml-substitute-special'.")
+
+(defconst confluence-xml-entity-alist
+  '(("quot" . "\"")
+    ("amp" . "&")
+    ("lt" . "<")
+    ("gt" . ">")
+    ("apos" . "'"))
+  "Basic xml entities.")
+
 ;; these are never set directly, only defined here to make the compiler happy
 (defvar confluence-coding-system nil)
 (defvar confluence-coding-prefix nil)
@@ -891,7 +902,7 @@ necessary."
         (let ((rpc-result 
                (if async-callback
                    (apply 'xml-rpc-method-call-async async-callback page-url method-name params)
-               (cf-url-decode-entities-in-value (apply 'xml-rpc-method-call page-url method-name params)))
+               (cf-maybe-url-decode-entities-in-value (apply 'xml-rpc-method-call page-url method-name params)))
                ))
           ;; clear any url messages before returning
           (message nil)
@@ -900,9 +911,9 @@ necessary."
        ;; decode the fault string and the error message (often includes the
        ;; fault string) and then rethrow the error
        (if xml-rpc-fault-string
-           (setq xml-rpc-fault-string (cf-url-decode-entities-in-value 
+           (setq xml-rpc-fault-string (cf-maybe-url-decode-entities-in-value 
                                        xml-rpc-fault-string)))
-       (error (cf-url-decode-entities-in-value (error-message-string err)))))))
+       (error (cf-maybe-url-decode-entities-in-value (error-message-string err)))))))
 
 (defun cf-rpc-get-page-by-name (space-name page-name)
   "Executes a confluence 'getPage' rpc call with space and page names."
@@ -1782,16 +1793,18 @@ given STRUCT-VAR."
   "Returns t if the given string is empty."
   (= (length str) 0))
 
-(defun cf-url-decode-entities-in-value (value)
+(defun cf-maybe-url-decode-entities-in-value (value)
   "Decodes XML entities in the given value, which may be a struct, list or
-something else."
-  (cond 
-   ((listp value)
-    (dolist (struct-val value)
-      (setcdr struct-val 
-              (cf-url-decode-entities-in-value (cdr struct-val)))))
-   ((stringp value)
-    (setq value (cf-url-decode-entities-in-string value))))
+something else.  This is only done if the xml-substitute-special
+function was not successfully overridden."
+  (if (not confluence-xml-substitute-special)
+      (cond 
+       ((listp value)
+        (dolist (struct-val value)
+          (setcdr struct-val 
+                  (cf-maybe-url-decode-entities-in-value (cdr struct-val)))))
+       ((stringp value)
+        (setq value (cf-url-decode-entities-in-string value)))))
   value)
 
 (defun cf-url-decode-entities-in-string (string)
@@ -1800,6 +1813,7 @@ something else."
     &lt;     ==>  <
     &gt;     ==>  >
     &quot;   ==>  \"
+    &apos;   ==>  '
     &#[0-9]+ ==>  <appropriate char>"
   (if (and (stringp string)
            (string-match "[&\r]" string))
@@ -1823,29 +1837,26 @@ something else."
     &lt;     ==>  <
     &gt;     ==>  >
     &quot;   ==>  \"
+    &apos;   ==>  '
     &#[0-9]+ ==>  <appropriate char>"
   (save-excursion
     (set-buffer decode-buffer)
     (goto-char (point-min))
     (while (re-search-forward "&\\([^;\n]+\\);" nil t)
-      (let ((ent-str (match-string 1))
+      (let ((ent-str (match-string-no-properties 1))
             (ent-point (match-beginning 1)))
         (replace-match 
          (cond
           ;; simple xml entities
-          ((cdr-safe (assoc ent-str
-                            '(("quot" . "\"")
-                              ("amp" . "&")
-                              ("lt" . "<")
-                              ("gt" . ">")))))
+          ((cdr-safe (assoc ent-str confluence-xml-entity-alist)))
           ;; decimal number character entities
           ((save-match-data
              (and (string-match "^#\\([0-9]+\\)$" ent-str)
-                  (cf-number-entity-to-string (string-to-number (match-string 1 ent-str))))))
+                  (cf-number-entity-to-string (string-to-number (match-string-no-properties 1 ent-str))))))
           ;; hexidecimal number character entities
           ((save-match-data
              (and (string-match "^#x\\([0-9A-Fa-f]+\\)$" ent-str)
-                  (cf-number-entity-to-string (string-to-number (match-string 1 ent-str) 16)))))
+                  (cf-number-entity-to-string (string-to-number (match-string-no-properties 1 ent-str) 16)))))
           ;; unknown entity
           (t (concat "&" ent-str ";")))
          t t)
@@ -1868,6 +1879,18 @@ set by `cf-rpc-execute-internal')."
     ;; finally, turn the char list into a string and decode it (some encodings
     ;; require a prefix, so slap that on here as well)
     (decode-coding-string (concat confluence-coding-prefix (apply 'string char-list)) confluence-coding-system t)))
+
+(if confluence-xml-substitute-special 
+    (defadvice xml-substitute-special (around xml-substitute-special-fixed
+                                              activate compile preactivate)
+      "Fix (possibly) broken entity decoding in `xml-substitute-special'."
+      (if confluence-coding-system
+          (let ((decoded-string (cf-url-decode-entities-in-string (ad-get-arg 0))))
+            ;; if xml-rpc is expecting utf-8, re-encode this string
+            (if xml-rpc-allow-unicode-string
+                (setq decoded-string (encode-coding-string decoded-string 'utf-8 t)))
+            (setq ad-return-value decoded-string))
+        ad-do-it)))
 
 (defadvice url-display-percentage (around url-display-percentage-quiet
                                           activate compile preactivate)
