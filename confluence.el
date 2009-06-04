@@ -305,6 +305,9 @@ for most coding systems.")
 (defconst confluence-xml-substitute-special (fboundp 'xml-substitute-special)
   "Whether or not confluence can override `xml-substitute-special'.")
 
+(defconst confluence-xml-escape-string (fboundp 'xml-escape-string)
+  "Whether or not confluence can override `xml-escape-string'.")
+
 (defconst confluence-xml-entity-alist
   '(("quot" . "\"")
     ("amp" . "&")
@@ -1890,6 +1893,14 @@ set by `cf-rpc-execute-internal')."
             (if xml-rpc-allow-unicode-string
                 (setq decoded-string (encode-coding-string decoded-string 'utf-8 t)))
             (setq ad-return-value decoded-string))
+        ad-do-it)))
+
+(if confluence-xml-escape-string 
+    (defadvice xml-escape-string (around xml-escape-string-fixed
+                                         activate compile preactivate)
+      "Fix double entity encoding caused by `xml-escape-string'."
+      (if confluence-coding-system
+          (setq ad-return-value (ad-get-arg 0))
         ad-do-it)))
 
 (defadvice url-display-percentage (around url-display-percentage-quiet
