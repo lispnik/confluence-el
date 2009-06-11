@@ -896,9 +896,7 @@ necessary."
          (confluence-coding-system (coding-system-change-eol-conversion tmp-coding-system 'unix))
          (confluence-coding-prefix (cf-get-struct-value confluence-coding-prefix-alist tmp-coding-system ""))
          (confluence-coding-num-bytes (cf-get-struct-value confluence-coding-bytes-per-char-alist
-                                                           tmp-coding-system 1))
-         (xml-rpc-encode-coding-system confluence-coding-system)
-         (xml-rpc-encode-coding-prefix-length (length confluence-coding-prefix)))
+                                                           tmp-coding-system 1)))
     (if (not page-url)
         (error "No confluence url configured"))
     (condition-case err
@@ -1883,6 +1881,24 @@ set by `cf-rpc-execute-internal')."
     ;; require a prefix, so slap that on here as well)
     (decode-coding-string (concat confluence-coding-prefix (apply 'string char-list)) confluence-coding-system t)))
 
+(defun cf-url-encode-nonascii-entities-in-string (value)
+  "Entity encodes the given string, handling any non-ascii values according to
+`confluence-coding-system'"
+  (if (string-match "[^[:ascii:]]" value)
+      (with-temp-buffer
+        (insert value)
+        (goto-char (point-min))
+        (while (re-search-forward "[^[:ascii:]]" nil t)
+          (let ((encoded-str (encode-coding-string (match-string 0) confluence-coding-system))
+                (encoded-num 0)
+                (char-idx (length confluence-coding-prefix)))
+            (while (> (length encoded-str) char-idx)
+              (setq encoded-num (+ (lsh encoded-num 8) (elt encoded-str char-idx)))
+              (incf char-idx))
+            (replace-match (concat "&#" (number-to-string encoded-num) ";") t t)))
+        (setq value (buffer-string))))
+  value)
+
 (if confluence-xml-substitute-special 
     (defadvice xml-substitute-special (around xml-substitute-special-fixed
                                               activate compile preactivate)
@@ -1902,6 +1918,15 @@ set by `cf-rpc-execute-internal')."
       (if confluence-coding-system
           (setq ad-return-value (ad-get-arg 0))
         ad-do-it)))
+
+(defadvice url-insert-entities-in-string (around url-insert-entities-in-string-nonascii
+                                          activate compile preactivate)
+  "Encode any non-ascii characters in the xml string after encoding the
+basic entities."
+  ad-do-it
+  (if confluence-coding-system
+      (setq ad-return-value 
+            (cf-url-encode-nonascii-entities-in-string ad-return-value))))
 
 (defadvice url-display-percentage (around url-display-percentage-quiet
                                           activate compile preactivate)
