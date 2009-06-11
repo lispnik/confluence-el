@@ -1357,6 +1357,14 @@ otherwise."
   (let ((buf-is-multibyte enable-multibyte-characters))
     (if (not
          (catch 'inserted-image
+           
+           ;; convert bmps to tifs (emacs does not seem to handle bmps)
+           (if (let ((case-fold-search t))
+                 (string-match "\\.bmp\\'" attachment-file-name))
+               (progn
+                 (cf-bmp-to-tif)
+                 (setq attachment-file-name (concat attachment-file-name ".tif"))))
+           
            ;; don't even bother if the file name does not match supported
            ;; image types
            (if (not (string-match (image-file-name-regexp) 
@@ -1456,6 +1464,31 @@ using the DECODE-CODING-SYSTEM if necessary)."
                                     decode-coding-system 1)))
           (cf-url-decode-entities-in-buffer result-buffer)))
       (set-buffer-modified-p nil))))
+
+(defun cf-bmp-to-tif ()
+  "Converts a bmp to a tif in the current buffer."
+  (let ((tmp-src-file (make-temp-file "bmp"))
+        (tmp-dst-file (make-temp-file "tif")))
+
+    ;; save bmp data to temp file
+    (let ((save-buffer-coding-system 'no-conversion)
+          (buffer-file-coding-system 'no-conversion)
+          (coding-system-for-write 'no-conversion)
+          (file-coding-system-alist nil))
+      (write-region (point-min) (point-max) tmp-src-file nil 'quiet))
+
+    ;; convert bmp to tiff
+    (if (/= (call-process "bmp2tiff" nil nil nil tmp-src-file tmp-dst-file) 0)
+        (progn
+          (message "Failed executing bmp2tiff")
+          (throw 'inserted-image nil)))
+
+    ;; replace bmp data w/ tif data
+    (insert-file-contents-literally tmp-dst-file nil 0 (nth 7 (file-attributes tmp-dst-file)) t)
+
+    ;; ditch tmp files
+    (delete-file tmp-src-file)
+    (delete-file tmp-dst-file)))
 
 (defun cf-format-attachment-buffer-name (file-name page-name space-name)
   "Creates a buffer name for an attachment with the given info."
