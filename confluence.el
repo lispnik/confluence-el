@@ -320,6 +320,7 @@ for most coding systems.")
 (defvar confluence-coding-system nil)
 (defvar confluence-coding-prefix nil)
 (defvar confluence-coding-num-bytes nil)
+(defvar confluence-eol-type nil)
 (defvar confluence-input-url nil)
 (defvar confluence-switch-url nil)
 (defvar confluence-completing-read nil)
@@ -893,6 +894,7 @@ necessary."
          ;; conversion (no conversion) because we handle that separately,
          ;; after entities are decoded
          (tmp-coding-system (coding-system-base (cf-get-struct-value confluence-coding-alist page-url 'utf-8)))
+         (confluence-eol-type (coding-system-eol-type tmp-coding-system))
          (confluence-coding-system (coding-system-change-eol-conversion tmp-coding-system 'unix))
          (confluence-coding-prefix (cf-get-struct-value confluence-coding-prefix-alist tmp-coding-system ""))
          (confluence-coding-num-bytes (cf-get-struct-value confluence-coding-bytes-per-char-alist
@@ -1858,10 +1860,17 @@ function was not successfully overridden."
 	(insert string)
         (cf-url-decode-entities-in-buffer (current-buffer))
 
-        ;; always convert to unix newlines
+        ;; always convert to unix newlines for consistency (first)
 	(goto-char (point-min))
         (while (re-search-forward "\r\n" nil t)
           (replace-match "\n" t t))
+        ;; then switch to actual system eol type if necessary
+        (if (and (not (eq confluence-eol-type 'unix))
+                 (not (eq confluence-eol-type 0)))
+              (decode-coding-region (point-min) (point-max)
+                                    (coding-system-change-eol-conversion
+                                     confluence-coding-system
+                                     confluence-eol-type)))
 	(buffer-string))
     string))
 
