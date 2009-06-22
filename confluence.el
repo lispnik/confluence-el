@@ -1865,12 +1865,12 @@ function was not successfully overridden."
         (while (re-search-forward "\r\n" nil t)
           (replace-match "\n" t t))
         ;; then switch to actual system eol type if necessary
-        (if (and (not (eq confluence-eol-type 'unix))
-                 (not (eq confluence-eol-type 0)))
-              (decode-coding-region (point-min) (point-max)
-                                    (coding-system-change-eol-conversion
-                                     confluence-coding-system
-                                     confluence-eol-type)))
+;;         (if (and (not (eq confluence-eol-type 'unix))
+;;                  (not (eq confluence-eol-type 0)))
+;;               (decode-coding-region (point-min) (point-max)
+;;                                     (coding-system-change-eol-conversion
+;;                                      confluence-coding-system
+;;                                      confluence-eol-type)))
 	(buffer-string))
     string))
 
