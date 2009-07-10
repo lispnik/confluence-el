@@ -1140,7 +1140,8 @@ search results and loading the data into that page."
           (progn
             (cf-insert-search-results search-results load-info)
             (goto-char (point-min))
-            (toggle-read-only 1))))  ;; always make search results read-only
+            (toggle-read-only 1)  ;; always make search results read-only
+            (local-set-key [return] 'confluence-get-page-at-point))))
     (switch-to-buffer search-buffer)))
 
 (defun cf-insert-search-results (search-results load-info)
