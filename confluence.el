@@ -1084,13 +1084,15 @@ and loading the data if necessary."
           (confluence-goto-anchor anchor-name)))
     (switch-to-buffer page-buffer)))
 
-(defun cf-insert-page (full-page &optional load-info browse-function keep-undo)
+(defun cf-insert-page (full-page &optional load-info browse-function keep-undo page-mode)
   "Does the work of loading confluence page data into the current buffer.  If
 KEEP-UNDO, the current undo state will not be erased.  The LOAD-INFO is the 
 information necessary to reload the page (if nil, normal page info is used)."
   ;; if this is an old buffer (already has confluence-mode), run
   ;; revert hooks before writing new data
-  (if (eq major-mode 'confluence-mode)
+  (if (not page-mode)
+      (setq page-mode 'confluence-mode))
+  (if (eq major-mode page-mode)
       (run-hooks 'confluence-before-revert-hook))
   (let ((old-point (point))
         (was-read-only buffer-read-only))
@@ -1120,7 +1122,7 @@ information necessary to reload the page (if nil, normal page info is used)."
     (or keep-undo
         (eq buffer-undo-list t)
         (setq buffer-undo-list nil))
-    (confluence-mode)
+    (funcall page-mode)
     (if was-read-only
         (toggle-read-only 1))))
 
@@ -1140,8 +1142,7 @@ search results and loading the data into that page."
           (progn
             (cf-insert-search-results search-results load-info)
             (goto-char (point-min))
-            (toggle-read-only 1)  ;; always make search results read-only
-            (local-set-key [return] 'confluence-get-page-at-point))))
+            (toggle-read-only 1))))  ;; always make search results read-only
     (switch-to-buffer search-buffer)))
 
 (defun cf-insert-search-results (search-results load-info)
@@ -1161,7 +1162,7 @@ search results and loading the data into that page."
       (cf-set-struct-value 'search-page "content" (buffer-string)))
     ;; install a special browse-function for loading the search urls (which
     ;; use page ids)
-    (cf-insert-page search-page load-info 'cf-search-browse-function)))
+    (cf-insert-page search-page load-info 'cf-search-browse-function nil 'confluence-search-mode)))
 
 (defun cf-search-browse-function (url)
   "Browse function used in search buffers (the links are page ids)."
@@ -2407,6 +2408,10 @@ mode.")
           nil nil nil nil (font-lock-multiline . t)))
 )
 
+(define-derived-mode confluence-search-mode confluence-mode "ConfluenceSearch"
+  "Set major mode for viewing Confluence Search results."
+  (local-set-key [return] 'confluence-get-page-at-point)
+)
 
 ;; TODO 
 ;; - add "backup" support (save to restore from local file)?
