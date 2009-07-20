@@ -1914,8 +1914,9 @@ set by `cf-rpc-execute-internal')."
       (push 0 char-list))
     ;; finally, turn the char list into a string and decode it (some encodings
     ;; require a prefix, so slap that on here as well)
-    (decode-coding-string (string-make-unibyte (concat confluence-coding-prefix (apply 'string char-list)))
-                          confluence-coding-system t)))
+    (decode-coding-string 
+     (string-make-unibyte (apply 'string (append confluence-coding-prefix char-list)))
+     confluence-coding-system t)))
 
 (defun cf-url-encode-nonascii-entities-in-string (value)
   "Entity encodes the given string, handling any non-ascii values according to
