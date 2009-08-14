@@ -99,6 +99,11 @@
 ;;  '(confluence-url "http://intranet/confluence/rpc/xmlrpc")
 ;;  '(confluence-default-space-alist (list (cons confluence-url "your-default-space-name"))))
 ;;
+;;  ;; if you are having trouble viewing non-ascii characters, include
+;;  ;; something like this in your configuration (you may need to change the
+;;  ;; encoding for your environment)
+;;  '(confluence-coding-alist (list (cons confluence-url 'utf-16-be)))
+;;
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; ;; confluence editing support (with longlines mode)
 ;;
