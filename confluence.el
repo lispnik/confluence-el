@@ -99,11 +99,6 @@
 ;;  '(confluence-url "http://intranet/confluence/rpc/xmlrpc")
 ;;  '(confluence-default-space-alist (list (cons confluence-url "your-default-space-name"))))
 ;;
-;;  ;; if you are having trouble viewing non-ascii characters, include
-;;  ;; something like this in your configuration (you may need to change the
-;;  ;; encoding for your environment)
-;;  '(confluence-coding-alist (list (cons confluence-url 'utf-16-be)))
-;;
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; ;; confluence editing support (with longlines mode)
 ;;
@@ -165,12 +160,6 @@
 (require 'browse-url)
 (require 'image-file)
 
-(defmacro confluence-coding-system-base (coding-system)
-  "Safely returns the base of the given CODING-SYSTEM (or the given value if not found)."
-  `(if (coding-system-p ,coding-system)
-       (coding-system-base ,coding-system)
-     ,coding-system))
-
 (defgroup confluence nil
   "Support for editing confluence wikis."
   :prefix "confluence-")
@@ -217,10 +206,7 @@ http://intranet/confluence/rpc/xmlrpc.  Setting this in your
   :type 'integer)
 
 (defcustom confluence-coding-alist nil
-  "Coding systems to use for a given service ('url' -> 'coding-system').  Confluence versions < 2.8 incorrectly
-managed xml encoding and used the server's platform default encoding (ignoring any specified by the xml itself).  If
-you are working with an older system, you will need to configure the coding system here (default 'utf-8 is used if not
-configured here)."
+  "Obsolete variable, no longer necessary."
   :group 'confluence
   :type '(alist  :key-type string :value-type coding-system))
 
@@ -235,16 +221,6 @@ possible), otherwise images will be treated the same as other attachments."
 useful for long running emacs sessions."
   :group 'confluence
   :type 'boolean)
-
-(defvar confluence-coding-prefix-alist (list (cons (confluence-coding-system-base 'utf-16-be) "\376\377")
-                                             (cons (confluence-coding-system-base 'utf-16-le) "\377\376"))
-  "Extra prefix necessary when decoding a string in a given coding system (not necessary for all coding systems).  The
-empty string is used if nothing is defined here, which works for most coding systems.")
-
-(defvar confluence-coding-bytes-per-char-alist (list (cons (confluence-coding-system-base 'utf-16-be) 2)
-                                                     (cons (confluence-coding-system-base 'utf-16-le) 2))
-  "Number of bytes per character for the coding system.  Assumed be be 1 or variable if not defined here, which works
-for most coding systems.")
 
 (defvar confluence-before-save-hook nil
   "List of functions to be called before saving a confluence page.")
@@ -322,9 +298,7 @@ for most coding systems.")
   "Basic xml entities.")
 
 ;; these are never set directly, only defined here to make the compiler happy
-(defvar confluence-coding-system nil)
-(defvar confluence-coding-prefix nil)
-(defvar confluence-coding-num-bytes nil)
+(defvar confluence-do-coding nil)
 (defvar confluence-input-url nil)
 (defvar confluence-switch-url nil)
 (defvar confluence-completing-read nil)
@@ -893,15 +867,7 @@ necessary."
   (let* ((url-http-version "1.0")  ;; this make the xml-rpc parser happy
          (url-http-attempt-keepalives nil)
          (page-url (cf-get-url))   ;; figure out which url to use
-         ;; setup the coding system to use for encoding/decoding based on the
-         ;; url we will use for the call.  note, we always use the 'unix eol
-         ;; conversion (no conversion) because we handle that separately,
-         ;; after entities are decoded
-         (tmp-coding-system (coding-system-base (cf-get-struct-value confluence-coding-alist page-url 'utf-8)))
-         (confluence-coding-system (coding-system-change-eol-conversion tmp-coding-system 'unix))
-         (confluence-coding-prefix (cf-get-struct-value confluence-coding-prefix-alist tmp-coding-system ""))
-         (confluence-coding-num-bytes (cf-get-struct-value confluence-coding-bytes-per-char-alist
-                                                           tmp-coding-system 1)))
+         (confluence-do-coding t))
     (if (not page-url)
         (error "No confluence url configured"))
     (condition-case err
@@ -1288,7 +1254,6 @@ saved to this file name and not viewed."
   (lexical-let ((retrieval-done nil)
 		(asynch-buffer nil)
                 (download-error nil)
-                (tmp-coding-system (coding-system-base (cf-get-struct-value confluence-coding-alist (cf-get-url) 'utf-8)))
                 (attachment-struct nil))
 
     ;; grab attachment struct
@@ -1317,8 +1282,7 @@ saved to this file name and not viewed."
            (lambda ()
              (unwind-protect
                  (condition-case err
-                     (cf-attachment-download-callback result-buffer 
-                                                      tmp-coding-system)
+                     (cf-attachment-download-callback result-buffer)
                    (error
                     (setq download-error (error-message-string err))))
                (setq retrieval-done t
@@ -1420,10 +1384,10 @@ otherwise."
           nil)
       t)))
 
-(defun cf-attachment-download-callback (result-buffer decode-coding-system)
+(defun cf-attachment-download-callback (result-buffer)
   "Handles an attachment xml-rpc download result buffer.  Copies the
 attachment data to the given RESULT-BUFFER (base64 decoding or entity decoding
-using the DECODE-CODING-SYSTEM if necessary)."
+if necessary)."
   (url-mark-buffer-as-dead (current-buffer))
   (if (not (numberp url-http-response-status))
       (error "Why? url-http-response-status is %s"
@@ -1461,14 +1425,7 @@ using the DECODE-CODING-SYSTEM if necessary)."
             (if buf-is-multibyte
                 (set-buffer-multibyte t)))
         ;; otherwise, we need to do entity decoding
-        (let ((confluence-coding-system (coding-system-change-eol-conversion
-                                         decode-coding-system 'unix))
-              (confluence-coding-prefix 
-               (cf-get-struct-value confluence-coding-prefix-alist
-                                    decode-coding-system ""))
-              (confluence-coding-num-bytes 
-               (cf-get-struct-value confluence-coding-bytes-per-char-alist
-                                    decode-coding-system 1)))
+        (let ((confluence-do-coding t))
           (cf-url-decode-entities-in-buffer result-buffer)))
       (set-buffer-modified-p nil))))
 
@@ -1904,40 +1861,22 @@ function was not successfully overridden."
         (goto-char ent-point)))))
 
 (defun cf-number-entity-to-string (num)
-  "Convert an xml number entity to the appropriate character using the current `confluence-coding-system' (which is
-set by `cf-rpc-execute-internal')."
-  ;; split the number into bytes and put these all into char-list
-  (let ((char-list nil))
-    (push (logand num 255) char-list)
-    (setq num (lsh num -8))
-    (while (/= 0 num)
-      (push (logand num 255) char-list)
-      (setq num (lsh num -8)))
-    ;; if the currenting coding system has fixed lenth chars, pad the
-    ;; character list as necessary
-    (while (< (length char-list) confluence-coding-num-bytes)
-      (push 0 char-list))
-    ;; finally, turn the char list into a string and decode it (some encodings
-    ;; require a prefix, so slap that on here as well)
-    (decode-coding-string 
-     (string-make-unibyte (apply 'string (append confluence-coding-prefix char-list)))
-     confluence-coding-system t)))
+  "Convert an xml number entity value to the appropriate character string."
+  (string (decode-char 'ucs num)))
+
+(defun cf-string-to-number-entity (str)
+  "Convert a single character string to the appropriate xml number entity value"
+  (encode-char (string-to-char str) 'ucs))
 
 (defun cf-url-encode-nonascii-entities-in-string (value)
-  "Entity encodes the given string, handling any non-ascii values according to
-`confluence-coding-system'"
+  "Entity encodes any non-ascii values in the given string."
   (if (string-match "[^[:ascii:]]" value)
       (with-temp-buffer
         (insert value)
         (goto-char (point-min))
         (while (re-search-forward "[^[:ascii:]]" nil t)
-          (let ((encoded-str (encode-coding-string (match-string 0) confluence-coding-system))
-                (encoded-num 0)
-                (char-idx (length confluence-coding-prefix)))
-            (while (> (length encoded-str) char-idx)
-              (setq encoded-num (+ (lsh encoded-num 8) (elt encoded-str char-idx)))
-              (incf char-idx))
-            (replace-match (concat "&#" (number-to-string encoded-num) ";") t t)))
+          (let ((encoded-char (cf-string-to-number-entity (match-string 0))))
+            (replace-match (concat "&#" (number-to-string encoded-char) ";") t t)))
         (setq value (buffer-string))))
   value)
 
@@ -1945,7 +1884,7 @@ set by `cf-rpc-execute-internal')."
     (defadvice xml-substitute-special (around xml-substitute-special-fixed
                                               activate compile preactivate)
       "Fix (possibly) broken entity decoding in `xml-substitute-special'."
-      (if confluence-coding-system
+      (if confluence-do-coding
           (let ((decoded-string (cf-url-decode-entities-in-string (ad-get-arg 0))))
             ;; if xml-rpc is expecting utf-8, re-encode this string
             (if xml-rpc-allow-unicode-string
@@ -1957,7 +1896,7 @@ set by `cf-rpc-execute-internal')."
     (defadvice xml-escape-string (around xml-escape-string-fixed
                                          activate compile preactivate)
       "Fix double entity encoding caused by `xml-escape-string'."
-      (if confluence-coding-system
+      (if confluence-do-coding
           (setq ad-return-value (ad-get-arg 0))
         ad-do-it)))
 
@@ -1966,7 +1905,7 @@ set by `cf-rpc-execute-internal')."
   "Encode any non-ascii characters in the xml string after encoding the
 basic entities."
   ad-do-it
-  (if confluence-coding-system
+  (if confluence-do-coding
       (setq ad-return-value 
             (cf-url-encode-nonascii-entities-in-string ad-return-value))))
 
