@@ -155,6 +155,7 @@
 ;;; Code:
 
 (require 'xml-rpc)
+(require 'url-http)
 (require 'ediff)
 (require 'thingatpt)
 (require 'browse-url)
