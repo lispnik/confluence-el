@@ -224,7 +224,9 @@ useful for long running emacs sessions."
   :type 'boolean)
 
 (defcustom confluence-save-page-minor-edits 'ask
-  "Whether a page save should be considered a 'minor edit' (no notifications sent).
+  "Whether a page save should be considered a 'minor edit' (no notifications
+sent).  Note, this feature is only enabled if the confluence server is version
+2.10 or higher.
 Possible values:
  `t'   -- Always save pages as minor edits.
  `ask' -- Ask on every page save.
@@ -235,7 +237,8 @@ Possible values:
                  (const :tag "Never" nil)))
 
 (defcustom confluence-save-page-comments 'major
-  "Whether a version comment should be included with a page save.
+  "Whether a version comment should be included with a page save.  Note, this
+feature is only enabled if the confluence server is version 2.10 or higher.
 Possible values:
  `t'     -- Always ask for a comment.
  `major' -- Only ask for comments for major edits.
