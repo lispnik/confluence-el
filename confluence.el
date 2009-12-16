@@ -223,6 +223,28 @@ useful for long running emacs sessions."
   :group 'confluence
   :type 'boolean)
 
+(defcustom confluence-save-page-minor-edits 'ask
+  "Whether a page save should be considered a 'minor edit' (no notifications sent).
+Possible values:
+ `t'   -- Always save pages as minor edits.
+ `ask' -- Ask on every page save.
+ `nil' -- Never save pages as minor edits."
+  :group 'confluence
+  :type '(choice (const :tag "Always" t)
+                 (const :tag "Ask" ask)
+                 (const :tag "Never" nil)))
+
+(defcustom confluence-save-page-comments 'major
+  "Whether a version comment should be included with a page save.
+Possible values:
+ `t'     -- Always ask for a comment.
+ `major' -- Only ask for comments for major edits.
+ `nil'   -- Never ask for a comment."
+  :group 'confluence
+  :type '(choice (const :tag "Always" t)
+                 (const :tag "Major Only" major)
+                 (const :tag "Never" nil)))
+
 (defvar confluence-before-save-hook nil
   "List of functions to be called before saving a confluence page.")
 
@@ -233,7 +255,11 @@ useful for long running emacs sessions."
   "AList of 'url' -> 'token' login information.")
 
 (defvar confluence-login-credential-alist nil
-  "AList of 'url' -> ('username' . 'password') login information, if .")
+  "AList of 'url' -> ('username' . 'password') login information, if
+`confluence-save-credentials' is t.")
+
+(defvar confluence-server-info-alist nil
+  "AList of 'url' -> 'server-info' information.")
 
 (defvar confluence-path-history nil
   "History list of paths accessed.")
@@ -841,7 +867,8 @@ on `confluence-default-space-alist')."
 
 (defun confluence-get-info ()
   "Gets information on confluence."
-  (message "Confluence Server Info: %s" (cf-rpc-get-server-info)))
+  (interactive)
+  (message "Confluence Server Info: %s" (cf-get-server-info)))
 
 (defun confluence-get-info-with-url (&optional arg)
   "With ARG, prompts for the confluence url to use for the get
@@ -917,12 +944,12 @@ SPACE-NAME."
     (cf-rpc-execute 'confluence1.search query
                     params (or max-results confluence-search-max-results))))
 
-(defun cf-rpc-save-page (page-struct &optional comment minorEdit)
+(defun cf-rpc-save-page (page-struct &optional comment minor-edit)
   "Executes a confluence 'storePage' rpc call with a page struct (or
 'updatePage' if comment or minorEdit flag are specified)."
-  (if (or (cf-string-notempty comment) minorEdit)
-      (let ((page-options (list (cons "versionComment" coment) 
-                                (cons "minorEdit" minorEdit))))
+  (if (or (cf-string-notempty comment) minor-edit)
+      (let ((page-options (list (cons "versionComment" comment) 
+                                (cons "minorEdit" minor-edit))))
         (cf-rpc-execute 'confluence1.updatePage page-struct page-options))
     (cf-rpc-execute 'confluence1.storePage page-struct)))
 
@@ -1011,13 +1038,33 @@ page."
   (if (not confluence-page-id)
       (error "Could not save Confluence page %s, missing page id"
              (buffer-name)))
-  (widen)
-  (run-hooks 'confluence-before-save-hook)
-  (cf-insert-page (cf-rpc-save-page 
-                   (cf-set-struct-value-copy confluence-page-struct 
-                                             "content" (buffer-string))) 
-                  nil nil t)
+  (let* ((minor-edit nil)
+         (comment nil))
+    (if (cf-is-version-at-least 2 10)
+        (progn
+          ;; only ask for these values if the server API supports sending them
+          (setq minor-edit (cf-save-is-minor-edit))
+          (setq comment (cf-save-get-comment minor-edit))))
+    (widen)
+    (run-hooks 'confluence-before-save-hook)
+    (cf-insert-page (cf-rpc-save-page 
+                     (cf-set-struct-value-copy confluence-page-struct 
+                                               "content" (buffer-string))
+                     comment minor-edit) 
+                    nil nil t))
   t)
+
+(defun cf-save-is-minor-edit ()
+  (and confluence-save-page-minor-edits
+       (or (not (eq confluence-save-page-minor-edits 'ask))
+           (not (y-or-n-p "Major edit? ")))))
+
+(defun cf-save-get-comment (minor-edit)
+  (if (and confluence-save-page-comments
+           (or (not (eq confluence-save-page-comments 'major))
+               (not minor-edit)))
+      (read-string "Modification comment: " nil nil nil t)
+    nil))
 
 (defun cf-revert-page (&optional arg noconfirm)
   "Reverts the current buffer to the latest version of the current confluence
@@ -1496,6 +1543,24 @@ the pattern '<temp-dir>/<file-prefix>-<temp-id>.<file-ext>'."
     (concat (make-temp-name
              (expand-file-name (concat prefix "-") temporary-file-directory))
             suffix))))
+
+(defun cf-get-server-info ()
+  "Gets the (possibly cached) server info."
+  (let ((server-info (cf-get-struct-value confluence-server-info-alist (cf-get-url))))
+    (if (not server-info)
+        (progn
+          (setq server-info (cf-rpc-get-server-info))
+          (cf-set-struct-value 'confluence-server-info-alist (cf-get-url) server-info)))
+    server-info))
+
+(defun cf-is-version-at-least (major-version minor-version)
+  "Return t if the server version is at least the given version, nil otherwise."
+  (let* ((server-info (cf-get-server-info))
+         (cur-major-version (string-to-number (cf-get-struct-value server-info "majorVersion" "0")))
+         (cur-minor-version (string-to-number (cf-get-struct-value server-info "minorVersion" "0"))))
+    (or (> cur-major-version major-version)
+        (and (= cur-major-version major-version)
+             (>= cur-minor-version minor-version)))))
 
 (defun cf-prompt-page-info (prompt-prefix page-name-var space-name-var &optional def-page-name)
   "Prompts for page info using the appropriate input function and sets the given vars appropriately."
