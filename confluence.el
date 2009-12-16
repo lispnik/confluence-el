@@ -839,6 +839,18 @@ on `confluence-default-space-alist')."
         (message "Launching browser with preview content...")
         (browse-url-of-buffer render-buf))))
 
+(defun confluence-get-info ()
+  "Gets information on confluence."
+  (message "Confluence Server Info: %s" (cf-rpc-get-server-info)))
+
+(defun confluence-get-info-with-url (&optional arg)
+  "With ARG, prompts for the confluence url to use for the get
+info call (based on `confluence-default-space-alist')."
+  (interactive "P")
+  (let ((confluence-switch-url arg)
+        (confluence-input-url nil))
+    (confluence-get-info)))
+
 (defun cf-rpc-execute (method-name &rest params)
   "Executes a confluence rpc call, managing the login token and logging in if
 necessary."
@@ -905,9 +917,14 @@ SPACE-NAME."
     (cf-rpc-execute 'confluence1.search query
                     params (or max-results confluence-search-max-results))))
 
-(defun cf-rpc-save-page (page-struct)
-  "Executes a confluence 'storePage' rpc call with a page struct."
-  (cf-rpc-execute 'confluence1.storePage page-struct))
+(defun cf-rpc-save-page (page-struct &optional comment minorEdit)
+  "Executes a confluence 'storePage' rpc call with a page struct (or
+'updatePage' if comment or minorEdit flag are specified)."
+  (if (or (cf-string-notempty comment) minorEdit)
+      (let ((page-options (list (cons "versionComment" coment) 
+                                (cons "minorEdit" minorEdit))))
+        (cf-rpc-execute 'confluence1.updatePage page-struct page-options))
+    (cf-rpc-execute 'confluence1.storePage page-struct)))
 
 (defun cf-rpc-get-spaces ()
   "Executes a confluence 'getSpaces' rpc call."
@@ -959,6 +976,10 @@ optional version number."
 (defun cf-rpc-get-page-descendents (page-id)
   "Executes a confluence 'getDescendents' rpc call with page id."
   (cf-rpc-execute 'confluence1.getDescendents page-id))
+
+(defun cf-rpc-get-server-info ()
+  "Executes a confluence 'getServerInfo' rpc call."
+  (cf-rpc-execute 'confluence1.getServerInfo))
 
 (defun cf-ediff-current-page (update-cur-version)
   "Starts an ediff session for the current confluence page, optionally
