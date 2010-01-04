@@ -413,6 +413,8 @@ confluence page.  Analogous to M-. (`find-tag').  Any ARG is passed to
         (is-embedded-content nil))
     ;; look for normal links, image/embedded content links, or raw links
     (cond
+     ((thing-at-point-looking-at "{include:[ \t]*\\([^|\n}]+\\)}")
+      (setq url (match-string 1)))
      ((thing-at-point-looking-at "\\[\\(\\([^|\n]*\\)[|]\\)?\\([^]\n]+\\)\\]")
       (setq url (match-string 3)))
      ((thing-at-point-looking-at "[!]\\([^]|\n]+\\)\\([|]\\([^]\n]*\\)\\)?[!]")
