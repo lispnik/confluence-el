@@ -1954,11 +1954,17 @@ function was not successfully overridden."
 
 (defun cf-number-entity-to-string (num)
   "Convert an xml number entity value to the appropriate character string."
-  (string (decode-char 'ucs num)))
+  (let ((c (decode-char 'ucs num)))
+    (if (not c)
+        (error "Could not decode character for character code %S" num))
+    (string c)))
 
 (defun cf-string-to-number-entity (str)
   "Convert a single character string to the appropriate xml number entity value"
-  (encode-char (string-to-char str) 'ucs))
+  (let ((c (encode-char (string-to-char str) 'ucs)))
+    (if (not c)
+        (error "Could not encode character '%S'" str))
+    c))
 
 (defun cf-url-encode-nonascii-entities-in-string (value)
   "Entity encodes any non-ascii values in the given string."
