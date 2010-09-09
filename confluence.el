@@ -317,8 +317,13 @@ Possible values:
 (defconst confluence-xml-substitute-special (fboundp 'xml-substitute-special)
   "Whether or not confluence can override `xml-substitute-special'.")
 
-(defconst confluence-xml-escape-string (fboundp 'xml-escape-string)
-  "Whether or not confluence can override `xml-escape-string'.")
+(defconst confluence-xml-escape-string 
+  (and (fboundp 'xml-escape-string)
+       (not (string-match ".*FOO&amp;BAR.*" 
+                          (with-temp-buffer
+                            (xml-print (xml-rpc-value-to-xml-list "FOO&BAR"))
+                            (buffer-string)))))
+  "Whether or not confluence can/should override `xml-escape-string'.")
 
 (defconst confluence-xml-entity-alist
   '(("quot" . "\"")
