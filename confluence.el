@@ -7,7 +7,7 @@
 ;; URL: http://code.google.com/p/confluence-el/
 ;; Keywords: confluence, wiki, xmlrpc
 ;; Version: 1.5-beta
-;; Package-Requires: ((xml-rpc "1.6.4"))
+;; Package-Requires: ((xml-rpc "1.6.4") (confluence-edit "1.5-beta"))
 
 ;; This file is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -36,9 +36,8 @@
 ;; INSTALLATION 
 ;;
 ;; You must set confluence-url in your .emacs file before using the functions
-;; in this module.  It's best to place confluence.el, confluence-common.el,
-;; confluence-edit.el and xml-rpc.el on your load path; often ~/.emacs.d or
-;; ~/elisp.
+;; in this module.  It's best to place confluence.el and confluence-edit.el
+;; and xml-rpc.el on your load path; often ~/.emacs.d or ~/elisp.
 ;;
 ;; Some examples:
 ;;
@@ -161,7 +160,6 @@
 (require 'thingatpt)
 (require 'browse-url)
 (require 'image-file)
-(require 'confluence-common)
 (require 'confluence-edit)
 
 (defgroup confluence nil
