@@ -208,7 +208,7 @@ given STRUCT-VAR."
      (1 'font-lock-comment-face prepend))
   
    ;; bold
-   '("[^[:word:]\\*][*]\\([^*\n]+\\)[*]\\W"
+   '("[^[:word:]\\*\n][*]\\([^*\n]+\\)[*]\\W"
      (1 'bold))
    
    ;; code
