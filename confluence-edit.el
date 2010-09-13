@@ -538,6 +538,74 @@ as a {code}code block{code}."
            (concat (cf-hard-newline) "----" (cf-hard-newline)) 
            (point))))
 
+(defvar confluence-max-block-search 200
+  "Maximum amount of characters back to search when highlighting blocks.")
+
+(defun confluence-backward-paragraph-or-block ()
+  "Moves backward one format block or paragraph (if not within or near a
+format block).  note, this is kind of a guessing game because there is
+ (often) no difference between a format block start and end tag."
+  (interactive)
+  (let* ((orig-pos (point))
+         (cur-pos orig-pos)
+         (search-start-pos (point-min)))
+    (if (> (- cur-pos search-start-pos) confluence-max-block-search)
+        (setq search-start-pos (- cur-pos confluence-max-block-search)))
+    (if (re-search-backward "^{\\([^{}\n]+\\)}" search-start-pos t)
+        (unless (cf-beginning-of-block-p (match-string 1))
+          (let ((first-match-pos (point))) 
+            (goto-char cur-pos)
+            (backward-paragraph)
+            (setq cur-pos (point))
+            (if (and (< (point) first-match-pos)
+                     (re-search-backward "^{\\([^{}\n]+\\)}"
+                                         search-start-pos t))
+                (unless (cf-beginning-of-block-p (match-string 1))
+                  (goto-char cur-pos))))))
+    (if (= orig-pos (point))
+        (backward-paragraph))))
+
+(defun confluence-forward-paragraph-or-block ()
+  "Moves forward one format block or paragraph (if not within or near a
+format block).  note, this is kind of a guessing game because there is
+ (often) no difference between a format block start and end tag."
+  (interactive)
+  (let* ((orig-pos (point))
+         (cur-pos orig-pos)
+         (search-end-pos (point-max)))
+    (if (> (- search-end-pos cur-pos) confluence-max-block-search)
+        (setq search-end-pos (+ cur-pos confluence-max-block-search)))
+    (if (re-search-forward "^{\\([^{}\n]+\\)}" search-end-pos t)
+        (unless (cf-end-of-block-p (match-string 1))
+          (let ((first-match-pos (point))) 
+            (goto-char cur-pos)
+            (forward-paragraph)
+            (setq cur-pos (point))
+            (if (and (> (point) first-match-pos)
+                     (re-search-forward "^{\\([^{}\n]+\\)}" 
+                                        search-end-pos t))
+                (unless (cf-end-of-block-p (match-string 1))
+                  (goto-char cur-pos))))))
+    (if (= orig-pos (point))
+        (forward-paragraph)
+      (unless (bolp)
+        (forward-line)))))
+
+(defun cf-beginning-of-block-p (block-str)
+  "Returns non-nil if the current position and BLOCK-STR represent the
+beginning of a format block, nil otherwise."
+  (or (string-match ":" block-str)
+      (bobp)
+      (not (get-text-property (- (point) 1) 'font-lock-multiline))))
+
+(defun cf-end-of-block-p (block-str)
+  "Returns non-nil if the current position and BLOCK-STR represent the end of
+a format block, nil otherwise."
+  (and (not (string-match ":" block-str))
+       (or (eobp)
+           (not (get-text-property (+ (point) 1) 'font-lock-multiline)))))
+
+
 (defvar confluence-format-prefix-map
   (let ((map (make-sparse-keymap)))
     (define-key map "i" 'confluence-italicize-text)
@@ -569,7 +637,8 @@ confluence mode.")
   (setq font-lock-defaults
         '((confluence-font-lock-keywords confluence-font-lock-keywords-1
                                          confluence-font-lock-keywords-2)
-          nil nil nil nil (font-lock-multiline . t)))
+          nil nil nil confluence-backward-paragraph-or-block
+          (font-lock-multiline . t)))
 )
 
 
