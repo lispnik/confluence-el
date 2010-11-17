@@ -953,7 +953,7 @@ SPACE-NAME."
   "Executes a confluence 'storePage' rpc call with a page struct (or
 'updatePage' if comment or minorEdit flag are specified)."
   (if (or (cf-string-notempty comment) minor-edit)
-      (let ((page-options (list (cons "versionComment" comment) 
+      (let ((page-options (list (cons "versionComment" (or comment "")) 
                                 (cons "minorEdit" minor-edit))))
         (cf-rpc-execute 'confluence1.updatePage page-struct page-options))
     (cf-rpc-execute 'confluence1.storePage page-struct)))
