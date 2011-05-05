@@ -1,11 +1,16 @@
 ;;; confluence-edit.el --- Emacs mode for editing confluence content buffers
 
-;; Copyright (C) 2010  Free Software Foundation, Inc.
+;; Copyright (C) 2008-2011 Kyle Burton, James Ahlborn
 
 ;; Author: James Ahlborn <james@boomi.com>
-;; Keywords: 
+;; Keywords: confluence, wiki
 ;; Version: 1.5-beta
 ;; Package-Requires: 
+;; EmacsWiki: ConfluenceMode
+
+;; This file is NOT part of GNU Emacs.
+
+;;; License:
 
 ;; This file is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by

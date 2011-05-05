@@ -1,6 +1,6 @@
 ;;; confluence.el --- Emacs mode for interacting with confluence wikis
 
-;; Copyright (C) 2008  Free Software Foundation, Inc.
+;; Copyright (C) 2008-2011 Kyle Burton, James Ahlborn
 
 ;; Author: James Ahlborn
 ;; Author: Kyle Burton <kyle.burton@gmail.com>
@@ -8,6 +8,11 @@
 ;; Keywords: confluence, wiki, xmlrpc
 ;; Version: 1.5-beta
 ;; Package-Requires: ((xml-rpc "1.6.4") (confluence-edit "1.5-beta"))
+;; EmacsWiki: ConfluenceMode
+
+;; This file is NOT part of GNU Emacs.
+
+;;; License:
 
 ;; This file is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
