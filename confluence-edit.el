@@ -44,9 +44,12 @@
 ;; Various utility code
 ;;
 
-;; this is never set directly, only defined here to make the compiler happy
+;; these are never set directly, only defined here to make the compiler happy
 (defvar confluence-completing-read nil)
-
+(defvar cfln-read-current-completions nil)
+(defvar cfln-read-current-other-completions nil)
+(defvar cfln-read-last-comp-str nil)
+(defvar cfln-read-completion-buffer nil)
 
 (defmacro with-quiet-rpc (&rest body)
   "Execute the forms in BODY with `url-show-status' set to nil."
@@ -87,12 +90,13 @@
 (defun cfln-read-string-simple (prompt hist-list-var comp-func-or-table
                               &optional require-match init-val def-val)
   "Prompt for a string using the given prompt info and history list."
-  (let ((current-completions nil)
-        (current-other-completions nil)
-        (last-comp-str nil)
-        (completion-buffer (or (and (boundp 'completion-buffer)
-                                    completion-buffer)
-                               (current-buffer)))
+  (let ((cfln-read-current-completions nil)
+        (cfln-read-current-other-completions nil)
+        (cfln-read-last-comp-str nil)
+        (cfln-read-completion-buffer 
+         (or (and (boundp 'cfln-read-completion-buffer)
+                  cfln-read-completion-buffer)
+             (current-buffer)))
         (confluence-completing-read t))
     (with-quiet-rpc
      ;; prefer ido-completing-read if available
@@ -171,6 +175,8 @@ given STRUCT-VAR."
 (defgroup confluence-faces nil
   "Faces used when editing confluence wiki pages."
   :group 'faces)
+
+(defvar confluence-get-attachment-names-function nil)
 
 (defvar confluence-code-face 'confluence-code-face)
 
@@ -518,13 +524,11 @@ as a {code}code block{code}."
   (interactive)
   (if (not file-name)
       (let ((cur-attachments 
-             (if (and (boundp 'confluence-page-id) confluence-page-id)
-                 (with-quiet-rpc
-                  (cfln-result-to-completion-list
-                   (cfln-rpc-get-attachments confluence-page-id) "fileName"))
+             (if confluence-get-attachment-names-function
+                 (funcall confluence-get-attachment-names-function)
                nil)))
         (setq file-name (cfln-read-string-simple "Confluence attachment file name: " 
-                                               'confluence-attachment-history cur-attachments))))
+                                                 'confluence-attachment-history cur-attachments))))
   (cfln-wrap-text "[" (concat "|^" (or file-name "") "]")))
 
 (defun confluence-embed-text ()

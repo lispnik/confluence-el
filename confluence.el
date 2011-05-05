@@ -313,6 +313,8 @@ Possible values:
 (defvar confluence-tag-stack nil
   "TAGs style stack support for push (\\C-xw.) and pop (\\C-xw*)")
 
+(setq confluence-get-attachment-names-function 'cfln-get-attachment-names)
+
 (defconst confluence-search-types (list (cons "content" t) (cons "title" t) (cons "label" t))
   "Supported search types.")
 
@@ -616,7 +618,7 @@ bindings are:
     space-name  page-name file-name) old-point)
 
 old-point is the point on the page which was pushed.  The 
-preceding list of info is the laod-info described in 
+preceding list of info is the load-info described in 
 `cfln-destructure-load-info'.
 "
   `(destructuring-bind
@@ -959,6 +961,15 @@ SPACE-NAME."
                                 (cons "minorEdit" minor-edit))))
         (cfln-rpc-execute 'confluence1.updatePage page-struct page-options))
     (cfln-rpc-execute 'confluence1.storePage page-struct)))
+
+(defun cfln-get-attachment-names ()
+  "Gets the names of the attachments for the current page, if a
+confluence page."
+  (if confluence-page-id
+      (with-quiet-rpc
+       (cfln-result-to-completion-list
+        (cfln-rpc-get-attachments confluence-page-id) "fileName"))
+    nil))
 
 (defun cfln-rpc-get-spaces ()
   "Executes a confluence 'getSpaces' rpc call."
@@ -1671,10 +1682,10 @@ specified as one path).  Suitable for use with `confluence-prompt-page-function'
 
 (defun cfln-complete-space-name (comp-str pred comp-flag)
   "Completion function for confluence spaces."
-  (if (not current-other-completions)
-      (with-current-buffer completion-buffer
-        (setq current-other-completions (cfln-result-to-completion-list (cfln-rpc-get-spaces) "key"))))
-  (cfln-complete comp-str pred comp-flag current-other-completions))
+  (if (not cfln-read-current-other-completions)
+      (with-current-buffer cfln-read-completion-buffer
+        (setq cfln-read-current-other-completions (cfln-result-to-completion-list (cfln-rpc-get-spaces) "key"))))
+  (cfln-complete comp-str pred comp-flag cfln-read-current-other-completions))
 
 (defun cfln-complete-page-name (comp-str pred comp-flag)
   "Completion function for confluence pages."
@@ -1683,23 +1694,23 @@ specified as one path).  Suitable for use with `confluence-prompt-page-function'
   (let ((tmp-comp-str (replace-regexp-in-string "^\\(\\s-\\|\\W\\)*\\(.*?\\)\\(\\s-\\|\\W\\)*$"
                                                 "\\2" comp-str t))
         (old-current-completions nil))
-    (if (and last-comp-str
-             (not (eq t (compare-strings last-comp-str 0 (length last-comp-str)
-                                         tmp-comp-str 0 (length last-comp-str) t))))
+    (if (and cfln-read-last-comp-str
+             (not (eq t (compare-strings cfln-read-last-comp-str 0 (length cfln-read-last-comp-str)
+                                         tmp-comp-str 0 (length cfln-read-last-comp-str) t))))
         (progn
-          (setq last-comp-str nil)
-          (setq current-completions nil))
+          (setq cfln-read-last-comp-str nil)
+          (setq cfln-read-current-completions nil))
       ;; if the new string is over the repeat search threshold, clear previous search results
-      (if (and last-comp-str
-               (<= (+ (length last-comp-str) confluence-min-page-repeat-completion-length)
+      (if (and cfln-read-last-comp-str
+               (<= (+ (length cfln-read-last-comp-str) confluence-min-page-repeat-completion-length)
                    (length tmp-comp-str)))
           (progn
-            (setq old-current-completions current-completions)
-            (setq current-completions nil))))
+            (setq old-current-completions cfln-read-current-completions)
+            (setq cfln-read-current-completions nil))))
     
   ;; retrieve page completions if necessary
   (if (and (>= confluence-min-page-completion-length 0)
-           (not current-completions)
+           (not cfln-read-current-completions)
            (>= (length tmp-comp-str) confluence-min-page-completion-length))
       (let ((title-query
              (replace-regexp-in-string "\\(\\W\\)" "\\\\\\&" tmp-comp-str t)))
@@ -1709,18 +1720,18 @@ specified as one path).  Suitable for use with `confluence-prompt-page-function'
                       (if (string-match "\\s-" title-query)
                           (concat title-query "*")
                         (concat "\"" title-query "*\""))))
-        (setq last-comp-str tmp-comp-str)
-        (with-current-buffer completion-buffer
-          (setq current-completions (cfln-result-to-completion-list
+        (setq cfln-read-last-comp-str tmp-comp-str)
+        (with-current-buffer cfln-read-completion-buffer
+          (setq cfln-read-current-completions (cfln-result-to-completion-list
                                      (cfln-rpc-search title-query space-name confluence-max-completion-results)
                                      "title")))
         ;; the query results are flaky, if we had results before and none now, reuse the old list
-        (if (and (= (length current-completions) 0)
+        (if (and (= (length cfln-read-current-completions) 0)
                  old-current-completions)
-            (setq current-completions old-current-completions))
+            (setq cfln-read-current-completions old-current-completions))
         )))
   
-  (cfln-complete comp-str pred comp-flag current-completions))
+  (cfln-complete comp-str pred comp-flag cfln-read-current-completions))
 
 (defun cfln-complete-page-path (comp-str pred comp-flag)
   "Completion function for confluence page paths."
@@ -1744,11 +1755,11 @@ specified as one path).  Suitable for use with `confluence-prompt-page-function'
 
 (defun cfln-complete-recent-label-name (comp-str pred comp-flag)
   "Completion function for confluence labels."
-  (if (not current-completions)
-      (with-current-buffer completion-buffer
-        (setq current-completions (cfln-result-to-completion-list (cfln-rpc-get-recent-labels
+  (if (not cfln-read-current-completions)
+      (with-current-buffer cfln-read-completion-buffer
+        (setq cfln-read-current-completions (cfln-result-to-completion-list (cfln-rpc-get-recent-labels
                                                                  confluence-max-completion-results) "name"))))
-  (cfln-complete comp-str pred comp-flag current-completions))
+  (cfln-complete comp-str pred comp-flag cfln-read-current-completions))
 
 (defun cfln-update-buffer-name ()
   "Sets the buffer name based on the buffer info if it is a page buffer."
