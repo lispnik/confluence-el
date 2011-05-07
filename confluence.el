@@ -1651,7 +1651,8 @@ specified as one path).  Suitable for use with `confluence-prompt-page-function'
   "Prompts for a confluence page name."
   (let ((page-prompt (if def-page-name
                          (format "Confluence Page Name [%s]: " def-page-name)
-                       "Confluence Page Name: ")))
+                       "Confluence Page Name: "))
+        (completion-ignore-case t))
     (cfln-read-string prompt-prefix page-prompt
                     'confluence-page-history (cons space-name (cfln-get-url))
                     'cfln-complete-page-name nil nil def-page-name)))
@@ -1697,7 +1698,7 @@ specified as one path).  Suitable for use with `confluence-prompt-page-function'
 
   ;; clear previous completion info if beginning of current string does not match previous string
   (let ((tmp-comp-str (replace-regexp-in-string "^\\(\\s-\\|\\W\\)*\\(.*?\\)\\(\\s-\\|\\W\\)*$"
-                                                "\\2" comp-str t))
+                                                "\\2" (downcase comp-str) t))
         (old-current-completions nil))
     (if (and cfln-read-last-comp-str
              (not (eq t (compare-strings cfln-read-last-comp-str 0 (length cfln-read-last-comp-str)
@@ -1719,12 +1720,7 @@ specified as one path).  Suitable for use with `confluence-prompt-page-function'
            (>= (length tmp-comp-str) confluence-min-page-completion-length))
       (let ((title-query
              (replace-regexp-in-string "\\(\\W\\)" "\\\\\\&" tmp-comp-str t)))
-        ;; the search syntax is a little flaky, sometimes quotes are good, sometimes not...
-        (setq title-query
-              (concat "title: "
-                      (if (string-match "\\s-" title-query)
-                          (concat title-query "*")
-                        (concat "\"" title-query "*\""))))
+        (setq title-query (concat "title: " title-query "*"))
         (setq cfln-read-last-comp-str tmp-comp-str)
         (with-current-buffer cfln-read-completion-buffer
           (setq cfln-read-current-completions (cfln-result-to-completion-list
