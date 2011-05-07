@@ -1371,7 +1371,7 @@ saved to this file name and not viewed."
     ;; start async attachment download
     (setq asynch-buffer
           (cfln-rpc-execute-async 
-           (lambda ()
+           (lambda (&rest cb-args)
              (unwind-protect
                  (condition-case err
                      (cfln-attachment-download-callback result-buffer)
