@@ -45,6 +45,8 @@
 
 ;;; Code:
 
+(require 'font-lock)
+
 ;;
 ;; Various utility code
 ;;
@@ -205,10 +207,7 @@ given STRUCT-VAR."
   "Font Lock Mode face used for panel in confluence pages."
   :group 'confluence-faces)
 
-(defvar confluence-font-lock-ref-face
-  (if (boundp 'font-lock-reference-face)      
-      '(font-lock-reference-face underline)
-    '(font-lock-constant-face underline)))
+(defvar confluence-embedded-link-face '(font-lock-constant-face underline))
 
 (defconst confluence-font-lock-keywords-1
   (list
@@ -280,11 +279,11 @@ given STRUCT-VAR."
    ;; images, embedded content
    '("\\([!]\\)\\([^|\n]+\\)[|]\\(?:[^!\n]*\\)\\([!]\\)"
      (1 'font-lock-constant-face)
-     (2 confluence-font-lock-ref-face)
+     (2 confluence-embedded-link-face)
      (3 'font-lock-constant-face))
    '("\\([!]\\)\\([^!|\n]+\\)\\([!]\\)"
      (1 'font-lock-constant-face)
-     (2 confluence-font-lock-ref-face)
+     (2 confluence-embedded-link-face)
      (3 'font-lock-constant-face))
    
    ;; tables
