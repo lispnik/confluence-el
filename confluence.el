@@ -938,7 +938,10 @@ necessary."
        ;; fault string) and then rethrow the error
        (if xml-rpc-fault-string
            (setq xml-rpc-fault-string (cfln-maybe-url-decode-entities-in-value 
-                                       xml-rpc-fault-string)))
+                                       xml-rpc-fault-string))
+         (if (and (consp err) (eq 'wrong-type-argument (car err)))
+             (error (format "Failed parsing xml-rpc result, please check your confluence-url configuration, currently '%s' (actual error: %s)"
+                            page-url (error-message-string err)))))
        (error (cfln-maybe-url-decode-entities-in-value (error-message-string err)))))))
 
 (defun cfln-rpc-get-page-by-name (space-name page-name)
@@ -1688,9 +1691,14 @@ specified as one path).  Suitable for use with `confluence-prompt-page-function'
 
 (defun cfln-complete-space-name (comp-str pred comp-flag)
   "Completion function for confluence spaces."
-  (if (not cfln-read-current-other-completions)
-      (with-current-buffer cfln-read-completion-buffer
-        (setq cfln-read-current-other-completions (cfln-result-to-completion-list (cfln-rpc-get-spaces) "key"))))
+  (condition-case err
+      (if (not cfln-read-current-other-completions)
+          (with-current-buffer cfln-read-completion-buffer
+            (setq cfln-read-current-other-completions (cfln-result-to-completion-list (cfln-rpc-get-spaces) "key"))))
+    (error
+     ;; just proceed with current info (probably a communication error, which will be worked out later)
+     (message "Failed loading confluence spaces for completion: %s" (error-message-string err))
+     (setq cfln-read-current-other-completions (list (cons comp-str t)))))
   (cfln-complete comp-str pred comp-flag cfln-read-current-other-completions))
 
 (defun cfln-complete-page-name (comp-str pred comp-flag)
