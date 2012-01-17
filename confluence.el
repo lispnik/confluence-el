@@ -71,7 +71,7 @@
 ;; Also, if you want keybindings for confluence-mode, you can put the
 ;; following in your .emacs file:
 ;;
-;; (add-hook 'confluence-mode-hook
+;; (add-hook 'confluence-edit-mode-hook
 ;;   (local-set-key "\C-xw" confluence-prefix-map)
 ;;   (local-set-key "\M-j" 'confluence-newline-and-indent)
 ;;   (local-set-key "\M-;" 'confluence-list-indent-dwim))
