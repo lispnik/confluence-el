@@ -139,7 +139,7 @@ If DEF-CHAR is given it will be returned if user hits the <enter> key."
 (defun cfln-result-to-completion-list (result-list key)
   "Translates the rpc result list into a list suitable for completion."
   (mapcar
-   '(lambda (el)
+   (lambda (el)
       (cons (cfln-get-struct-value el key) t))
    result-list))
 
