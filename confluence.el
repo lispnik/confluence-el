@@ -116,7 +116,7 @@
 ;;        (add-hook 'confluence-mode-hook 'longlines-mode)
 ;;        (add-hook 'confluence-before-save-hook 'longlines-before-revert-hook)
 ;;        (add-hook 'confluence-before-revert-hook 'longlines-before-revert-hook)
-;;        (add-hook 'confluence-mode-hook '(lambda () (local-set-key "\C-j" 'confluence-newline-and-indent))))))
+;;        (add-hook 'confluence-mode-hook (lambda () (local-set-key "\C-j" 'confluence-newline-and-indent))))))
 ;;
 ;; ;; LongLines mode: http://www.emacswiki.org/emacs-en/LongLines
 ;; (autoload 'longlines-mode "longlines" "LongLines Mode." t)
@@ -147,7 +147,7 @@
 ;;
 ;;     
 ;;      (add-hook 'ediff-cleanup-hook 
-;;                '(lambda ()
+;;                (lambda ()
 ;;                   (dolist (tmp-buf (list ediff-buffer-A
 ;;                                          ediff-buffer-B
 ;;                                          ediff-buffer-C))
@@ -166,6 +166,7 @@
 (require 'browse-url)
 (require 'image-file)
 (require 'confluence-edit)
+(require 'confluence-xml-edit)
 (require 'url-parse)
 
 (defgroup confluence nil
@@ -264,12 +265,22 @@ If nil, auto save is disabled for confluence buffers."
   :group 'confluence
   :type 'string)
 
+(defcustom confluence-xml-reformat-on-load nil
+  "If not nil, confluence xml buffers will be reformated automatically when loaded."
+  :group 'confluence
+  :type 'boolean)
 
 (defvar confluence-before-save-hook nil
   "List of functions to be called before saving a confluence page.")
 
 (defvar confluence-before-revert-hook nil
   "List of functions to be called before reverting a confluence page.")
+
+(defvar confluence-xml-before-save-hook nil
+  "List of functions to be called before saving a confluence xml page.")
+
+(defvar confluence-xml-before-revert-hook nil
+  "List of functions to be called before reverting a confluence xml page.")
 
 (defvar confluence-login-token-alist nil
   "AList of 'url' -> 'token' login information.")
@@ -351,6 +362,9 @@ If nil, auto save is disabled for confluence buffers."
     ("apos" . "'"))
   "Basic xml entities.")
 
+(defconst confluence-v1-methods '("login" "getServerInfo")
+  "Methods which are always api version 1.")
+
 ;; these are never set directly, only defined here to make the compiler happy
 (defvar confluence-do-coding nil)
 (defvar confluence-input-url nil)
@@ -379,7 +393,7 @@ re-login to the current url."
             (progn
               (setq cur-token
                     (cfln-rpc-execute-internal 
-                     'confluence1.login
+                     "login"
                      (setq username
                            (or (car-safe credentials)
                                (read-string (format "Confluence Username [%s]: " user-login-name)
@@ -768,7 +782,7 @@ latest version of that page saved in confluence."
   (interactive)
   (if confluence-page-id
       (let ((cur-labels (mapcar
-                         '(lambda (el)
+                         (lambda (el)
                             (cfln-get-struct-value el "name"))
                          (cfln-rpc-get-labels confluence-page-id))))
         (if (= (length cur-labels) 0)
@@ -784,7 +798,7 @@ latest version of that page saved in confluence."
         (if (not confluence-page-id)
             (error "Could not delete Confluence page %s, missing page id"
                    (buffer-name)))
-        (cfln-rpc-execute 'confluence1.removePage confluence-page-id)
+        (cfln-rpc-execute "removePage" confluence-page-id)
         ;; remove this page from the tag stack
         (while (assoc confluence-load-info confluence-tag-stack)
           (setq confluence-tag-stack
@@ -867,12 +881,16 @@ on `confluence-default-space-alist')."
               (setq source-content (buffer-string))
               ;; if there are save hooks, copy the content into a temp buf and run them on the content before
               ;; submitting it
-              (if confluence-before-save-hook
-                  (with-current-buffer (get-buffer-create " *Confluence-decode*")
-                    (erase-buffer)
-                    (insert source-content)
-                    (run-hooks 'confluence-before-save-hook)
-                    (setq source-content (buffer-string))))))
+              (let ((cur-before-save-hook (if (cfln-is-xml-content) 
+                                              'confluence-xml-before-save-hook
+                                            'confluence-before-save-hook)))
+                  (if (symbol-value cur-before-save-hook)
+                      (with-current-buffer (get-buffer-create " *Confluence-decode*")
+                        (erase-buffer)
+                        (insert source-content)
+                        (run-hooks (symbol-value 'cur-before-save-hook))
+                        (setq source-content (buffer-string)))))
+              ))
         ;; render the current page, optionally with locally modified content
         (setq rendered-content (cfln-rpc-render-page (cfln-get-struct-value confluence-page-struct "space")
                                                    confluence-page-id source-content))
@@ -942,8 +960,10 @@ necessary."
     (condition-case err
         (let ((rpc-result 
                (if async-callback
-                   (apply 'xml-rpc-method-call-async async-callback page-url method-name params)
-               (cfln-maybe-url-decode-entities-in-value (apply 'xml-rpc-method-call page-url method-name params)))
+                   (apply 'xml-rpc-method-call-async async-callback page-url 
+                          (cfln-get-rpc-method-name method-name) params)
+               (cfln-maybe-url-decode-entities-in-value (apply 'xml-rpc-method-call page-url 
+                                                               (cfln-get-rpc-method-name method-name) params)))
                ))
           ;; clear any url messages before returning
           (message nil)
@@ -959,13 +979,21 @@ necessary."
                             page-url (error-message-string err)))))
        (error (cfln-maybe-url-decode-entities-in-value (error-message-string err)))))))
 
+(defun cfln-get-rpc-method-name (method-name)
+  "Determines the actual rpc method name from the given simple method name."
+  (let ((api-prefix (if (and (not (member method-name confluence-v1-methods))
+                             (cfln-is-version-at-least 4 0))
+             "confluence2."
+           "confluence1.")))
+    (concat api-prefix method-name)))
+
 (defun cfln-rpc-get-page-by-name (space-name page-name)
   "Executes a confluence 'getPage' rpc call with space and page names."
-  (cfln-rpc-execute 'confluence1.getPage space-name page-name))
+  (cfln-rpc-execute "getPage" space-name page-name))
 
 (defun cfln-rpc-get-page-by-id (page-id)
   "Executes a confluence 'getPage' rpc call with a page id."
-  (cfln-rpc-execute 'confluence1.getPage page-id))
+  (cfln-rpc-execute "getPage" page-id))
 
 (defun cfln-rpc-search (query space-name &optional max-results)
   "Executes a confluence 'search' rpc call, optionally restricted by the given
@@ -973,7 +1001,7 @@ SPACE-NAME."
   (let ((params (list (cons "type" "page"))))
     (if (cfln-string-notempty space-name)
         (cfln-set-struct-value 'params "spaceKey" space-name))
-    (cfln-rpc-execute 'confluence1.search query
+    (cfln-rpc-execute "search" query
                     params (or max-results confluence-search-max-results))))
 
 (defun cfln-rpc-save-page (page-struct &optional comment minor-edit)
@@ -982,8 +1010,8 @@ SPACE-NAME."
   (if (or (cfln-string-notempty comment) minor-edit)
       (let ((page-options (list (cons "versionComment" (or comment "")) 
                                 (cons "minorEdit" minor-edit))))
-        (cfln-rpc-execute 'confluence1.updatePage page-struct page-options))
-    (cfln-rpc-execute 'confluence1.storePage page-struct)))
+        (cfln-rpc-execute "updatePage" page-struct page-options))
+    (cfln-rpc-execute "storePage" page-struct)))
 
 (defun cfln-get-attachment-names ()
   "Gets the names of the attachments for the current page, if a
@@ -996,58 +1024,58 @@ confluence page."
 
 (defun cfln-rpc-get-spaces ()
   "Executes a confluence 'getSpaces' rpc call."
-  (cfln-rpc-execute 'confluence1.getSpaces))
+  (cfln-rpc-execute "getSpaces"))
 
 (defun cfln-rpc-get-space (space-name)
   "Executes a confluence 'getSpace' rpc call with space name."
-  (cfln-rpc-execute 'confluence1.getSpace space-name))
+  (cfln-rpc-execute "getSpace" space-name))
 
 (defun cfln-rpc-get-labels (obj-id)
   "Executes a confluence 'getLabelsById' rpc call with object id."
-  (cfln-rpc-execute 'confluence1.getLabelsById obj-id))
+  (cfln-rpc-execute "getLabelsById" obj-id))
 
 (defun cfln-rpc-get-recent-labels (max-results)
   "Executes a confluence 'getRecentlyUsedLabels' rpc call with the given max results."
-  (cfln-rpc-execute 'confluence1.getRecentlyUsedLabels max-results))
+  (cfln-rpc-execute "getRecentlyUsedLabels" max-results))
 
 (defun cfln-rpc-add-label (label-name obj-id)
   "Executes a confluence 'addLabelByName' rpc call with label name and object id."
-  (cfln-rpc-execute 'confluence1.addLabelByName label-name obj-id))
+  (cfln-rpc-execute "addLabelByName" label-name obj-id))
 
 (defun cfln-rpc-remove-label (label-name obj-id)
   "Executes a confluence 'removeLabelByName' rpc call with label name and object id."
-  (cfln-rpc-execute 'confluence1.removeLabelByName label-name obj-id))
+  (cfln-rpc-execute "removeLabelByName" label-name obj-id))
 
 (defun cfln-rpc-render-page (space-name page-id &optional content)
   "Executes a confluence 'renderContent' rpc call with space and page id and optional content."
-  (cfln-rpc-execute 'confluence1.renderContent space-name page-id (or content "")))
+  (cfln-rpc-execute "renderContent" space-name page-id (or content "")))
 
 (defun cfln-rpc-get-attachments (page-id)
   "Executes a confluence 'getAttachments' rpc call with page id."
-  (cfln-rpc-execute 'confluence1.getAttachments page-id))
+  (cfln-rpc-execute "getAttachments" page-id))
 
 (defun cfln-rpc-get-attachment (page-id file-name &optional version)
   "Executes a confluence 'getAttachment' rpc call with page id, file name and
 optional version number."
   ;; "0" gets the latest version
-  (cfln-rpc-execute 'confluence1.getAttachment page-id file-name 
+  (cfln-rpc-execute "getAttachment" page-id file-name 
                   (or version "0")))
 
 (defun cfln-rpc-get-page-children (page-id)
   "Executes a confluence 'getChildren' rpc call with page id."
-  (cfln-rpc-execute 'confluence1.getChildren page-id))
+  (cfln-rpc-execute "getChildren" page-id))
 
 (defun cfln-rpc-get-page-ancestors (page-id)
   "Executes a confluence 'getAncestors' rpc call with page id."
-  (cfln-rpc-execute 'confluence1.getAncestors page-id))
+  (cfln-rpc-execute "getAncestors" page-id))
 
 (defun cfln-rpc-get-page-descendents (page-id)
   "Executes a confluence 'getDescendents' rpc call with page id."
-  (cfln-rpc-execute 'confluence1.getDescendents page-id))
+  (cfln-rpc-execute "getDescendents" page-id))
 
 (defun cfln-rpc-get-server-info ()
   "Executes a confluence 'getServerInfo' rpc call."
-  (cfln-rpc-execute 'confluence1.getServerInfo))
+  (cfln-rpc-execute "getServerInfo"))
 
 (defun cfln-ediff-current-page (update-cur-version)
   "Starts an ediff session for the current confluence page, optionally
@@ -1087,7 +1115,9 @@ page."
           (setq minor-edit (cfln-save-is-minor-edit))
           (setq comment (cfln-save-get-comment minor-edit))))
     (widen)
-    (run-hooks 'confluence-before-save-hook)
+    (run-hooks (if (cfln-is-xml-content) 
+                   'confluence-xml-before-save-hook
+                 'confluence-before-save-hook))
     (cfln-insert-page (cfln-rpc-save-page 
                      (cfln-set-struct-value-copy confluence-page-struct 
                                                "content" (buffer-string))
@@ -1174,9 +1204,13 @@ information necessary to reload the page (if nil, normal page info is used)."
   ;; if this is an old buffer (already has confluence-mode), run
   ;; revert hooks before writing new data
   (if (not page-mode)
-      (setq page-mode 'confluence-mode))
+      (setq page-mode (if (cfln-is-xml-content) 
+                          'confluence-xml-mode
+                        'confluence-mode)))
   (if (eq major-mode page-mode)
-      (run-hooks 'confluence-before-revert-hook))
+      (run-hooks (if (cfln-is-xml-content) 
+                     'confluence-xml-before-revert-hook
+                   'confluence-before-revert-hook)))
   (let ((old-point (point))
         (was-read-only buffer-read-only))
     (if was-read-only
@@ -1399,7 +1433,7 @@ saved to this file name and not viewed."
                     (setq download-error (error-message-string err))))
                (setq retrieval-done t
                      asynch-buffer (current-buffer))))
-           'confluence1.getAttachmentData 
+           "getAttachmentData" 
            page-id file-name "0")) ;; "0" gets the latest version
 
     ;; wait for download to finish (this logic ripped from
@@ -1605,6 +1639,10 @@ the pattern '<temp-dir>/<file-prefix>-<temp-id>.<file-ext>'."
         (and (= cur-major-version major-version)
              (>= cur-minor-version minor-version)))))
 
+(defun cfln-is-xml-content ()
+  "Return t if this confluence has xml content, nil otherwise."
+  (cfln-is-version-at-least 4 0))
+
 (defun cfln-prompt-page-info (prompt-prefix page-name-var space-name-var &optional def-page-name)
   "Prompts for page info using the appropriate input function and sets the given vars appropriately."
   (let ((result-list
@@ -1775,7 +1813,7 @@ specified as one path).  Suitable for use with `confluence-prompt-page-function'
           (concat space-name "/" page-comp-result))
          ((listp page-comp-result)
           (mapcar
-           '(lambda (el)
+           (lambda (el)
               (concat space-name "/" el)) page-comp-result))
          (t page-comp-result))))))
 
@@ -2072,8 +2110,8 @@ confluence space name, and the buffer name."
       (set-buffer-auto-saved))
   ))
 
-(define-derived-mode confluence-base-mode confluence-edit-mode "ConfluenceBase"
-  "Set major mode for editing Confluence Wiki pages."
+(defun confluence-base-mode-init ()
+  "Init major mode for editing Confluence pages."
   (make-local-variable 'revert-buffer-function)
   (setq revert-buffer-function 'cfln-revert-page)
   (make-local-variable 'make-backup-files)
@@ -2083,8 +2121,8 @@ confluence space name, and the buffer name."
   (setq buffer-file-name (expand-file-name (concat "." (buffer-name)) "~/"))
 )
 
-(define-derived-mode confluence-mode confluence-base-mode "Confluence"
-  ;; setup auto save mode if enabled
+(defun confluence-auto-save-init ()
+  "Sets up auto save mode if enabled."
   (when (and confluence-auto-save-dir
              (not buffer-auto-save-file-name))
     (let ((cfln-file-name-handler-alist file-name-handler-alist)
@@ -2092,13 +2130,34 @@ confluence space name, and the buffer name."
       (auto-save-mode t))
     (if (and buffer-auto-save-file-name
              (file-exists-p buffer-auto-save-file-name))
-        (message "%s has auto save data; consider M-x confluence-recover-this-page" (buffer-name))))
-)
+        (message "%s has auto save data; consider M-x confluence-recover-this-page" (buffer-name)))))
 
-(define-derived-mode confluence-search-mode confluence-base-mode "ConfluenceSearch"
+(define-derived-mode confluence-mode confluence-edit-mode "Confluence"
+  (confluence-base-mode-init)
+  (confluence-auto-save-init))
+
+(define-derived-mode confluence-search-mode confluence-edit-mode "ConfluenceSearch"
+  (confluence-base-mode-init)
   "Set major mode for viewing Confluence Search results."
   (local-set-key [return] 'confluence-get-page-at-point)
 )
+
+(define-derived-mode confluence-xml-mode confluence-xml-edit-mode "ConfluenceXml"
+  (confluence-base-mode-init)
+  (confluence-auto-save-init)
+
+  (when confluence-xml-reformat-on-load
+    (let ((buffer-undo-list t)
+              (inhibit-read-only t)
+	      (after-change-functions nil)
+              (mod (buffer-modified-p))
+	      buffer-file-name buffer-file-truename)
+	  (save-restriction
+	    (widen)
+	    (confluence-xml-reformat))
+          (set-buffer-modified-p mod)))
+)
+
 
 ;; TODO 
 ;; - extended link support
