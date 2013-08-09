@@ -100,7 +100,9 @@
 ;; confluence-convert-xml-to-wiki.  This page can be saved as wiki format
 ;; (allowing confluence to do the reverse conversion on save) or can be
 ;; converted back to xml format using M-x confluence-convert-xml-to-wiki and
-;; then saved (allowing you to check the final content).
+;; then saved (allowing you to check the final content).  Note that the
+;; conversion from xml to wiki format requires the external "xsltproc"
+;; program, which is available on most unices and cygwin.
 ;;
 ;; LONGLINES
 ;;
@@ -300,6 +302,12 @@ If nil, auto save is disabled for confluence buffers."
 (defcustom confluence-xml-reformat-on-load nil
   "If not nil, confluence xml buffers will be reformated
 automatically when loaded."
+  :group 'confluence
+  :type 'boolean)
+
+(defcustom confluence-xml-convert-to-wiki-on-load nil
+  "If not nil, confluence xml buffers will be
+automatically converted to wiki format when loaded."
   :group 'confluence
   :type 'boolean)
 
@@ -967,41 +975,52 @@ info call (based on `confluence-default-space-alist')."
 
 (defun confluence-convert-xml-to-wiki ()
   "Converts the contents of the current page from xml to wiki
-format.  Does nothing if the current page is not xml format."
+format.  Does nothing if the current page is not xml format.
+Note, this function requires the external 'xsltproc' program,
+available on most unices and cygwin."
   (interactive)
   (if (not (eq confluence-page-content-type 'xml))
       (message "Current buffer does not have confluence xml content")
 
-    (let ((conf-dir (file-name-directory (locate-library "confluence")))
-          (tmp-file-name (make-temp-file "confxml"))
-          (xml-content nil)
-          (wiki-content nil))
+    (let ((wiki-content nil))
 
       ;; first, "revert" current content
       (run-hooks 'confluence-xml-before-revert-hook)
       (widen)
-      (setq xml-content (buffer-string))      
-      (setq xml-content (replace-regexp-in-string "\"\\(confluence[.]dtd\\)\""
-                                      (expand-file-name "confluence.dtd" conf-dir)
-                                      xml-content t t 1))
-      (with-temp-file tmp-file-name
-        (insert xml-content))
-      (message "Processing xml content...")
-      (with-current-buffer (get-buffer-create " *Confluence-decode*")
-        (erase-buffer)
-        (let ((convert-status (call-process "xsltproc" nil (current-buffer) nil
-                                            (expand-file-name "confluence2wiki.xsl" conf-dir)
-                                            tmp-file-name)))
-          (unless (eq convert-status 0)
-            (error "Failed converting xml content to wiki format [%s]" convert-status)))        
-        (setq wiki-content (buffer-string)))
-      (message "Finished converting xml content")
-      (delete-file tmp-file-name)
+      (setq wiki-content 
+        (cfln-convert-xml-string-to-wiki-string (buffer-string)))
 
       ;; insert new contents to original buffer
       (cfln-set-struct-value 'confluence-page-struct "content" wiki-content)
-      (cfln-insert-page confluence-page-struct confluence-load-info confluence-browse-function
+      (cfln-insert-page confluence-page-struct confluence-load-info 
+                        confluence-browse-function
                         nil 'confluence-mode 'wiki))))
+
+(defun cfln-convert-xml-string-to-wiki-string (xml-content)
+  "Converts the given xml content from xml to wiki
+format."
+  (let ((conf-dir (file-name-directory (locate-library "confluence")))
+        (tmp-file-name (make-temp-file "confxml"))
+        (wiki-content nil))
+
+    (setq xml-content (replace-regexp-in-string "\"\\(confluence[.]dtd\\)\""
+                                                (expand-file-name "confluence.dtd" conf-dir)
+                                                xml-content t t 1))
+    (with-temp-file tmp-file-name
+      (insert xml-content))
+    (message "Processing xml content...")
+    (with-current-buffer (get-buffer-create " *Confluence-decode*")
+      (erase-buffer)
+      (let ((convert-status (call-process "xsltproc" nil (current-buffer) nil
+                                          (expand-file-name "confluence2wiki.xsl" conf-dir)
+                                          tmp-file-name)))
+        (unless (eq convert-status 0)
+          (error "Failed converting xml content to wiki format [%s]" 
+                 convert-status)))
+      (setq wiki-content (buffer-string)))
+    (message "Finished converting xml content")
+    (delete-file tmp-file-name)
+    wiki-content))
 
 (defun confluence-convert-wiki-to-xml ()
   "Converts the contents of the current page from wiki to xml
@@ -1303,7 +1322,8 @@ and loading the data if necessary."
           (confluence-goto-anchor anchor-name)))
     (switch-to-buffer page-buffer)))
 
-(defun cfln-insert-page (full-page &optional load-info browse-function keep-undo page-mode page-content-type)
+(defun cfln-insert-page (full-page &optional load-info browse-function 
+                                   keep-undo page-mode page-content-type)
   "Does the work of loading confluence page data into the current buffer.  If
 KEEP-UNDO, the current undo state will not be erased.  The LOAD-INFO is the 
 information necessary to reload the page (if nil, normal page info is used)."
@@ -1313,58 +1333,74 @@ information necessary to reload the page (if nil, normal page info is used)."
       (run-hooks (if (eq confluence-page-content-type 'xml) 
                      'confluence-xml-before-revert-hook
                    'confluence-before-revert-hook)))
-  ;; determine new mode/content-type
-  (unless page-mode
-    (if (cfln-is-version-at-least 4 0)
-        ;; default storage type for 4.0+ is xml
-        (setq page-mode 'confluence-xml-mode
-              page-content-type 'xml)
-      (setq page-mode 'confluence-mode
-            page-content-type 'wiki)))
-  (if (not (eq major-mode page-mode))
-      (fundamental-mode))
-  ;; now, insert new contents
-  (let ((old-point (point))
-        (was-read-only buffer-read-only))
-    (if was-read-only
-        (toggle-read-only))
-    ;; save/update various page metadata
-    (setq confluence-page-struct full-page)
-    (setq confluence-page-url (cfln-get-url))
-    (setq confluence-page-content-type page-content-type)
-    (setq confluence-page-id (cfln-get-struct-value confluence-page-struct "id"))
-    (setq confluence-load-info 
-          (or load-info
-              (list 'page confluence-page-url confluence-page-id)))
-    (if browse-function
-        (setq confluence-browse-function browse-function))
-    ;; don't save the buffer edits on the undo list (we might keep it)
-    (let ((buffer-undo-list t)
-          (inhibit-read-only t)
-          (page-content (cfln-get-struct-value confluence-page-struct "content" "")))
-      (when (eq page-content-type 'xml)
-        ;; massage the contents a bit first (trim extra whitespace, add header/footer)
-        (setq page-content
-              (replace-regexp-in-string "[ \t\n]+\\'" ""
-                                        (replace-regexp-in-string "\\`[ \t\n]+" "" page-content)))
-        (setq page-content (concat confluence-xml-page-header
-                                   page-content
-                                   confluence-xml-page-footer)))
-      (widen)
-      (erase-buffer)
-      ;; actually insert the new page contents
-      (insert page-content)
-      (goto-char old-point))
-    ;; remove the contents from the page metadata
-    (cfln-set-struct-value 'confluence-page-struct "content" "")
-    ;; restore/setup buffer state
-    (set-buffer-modified-p nil)
-    (or keep-undo
-        (eq buffer-undo-list t)
-        (setq buffer-undo-list nil))
-    (funcall page-mode)
-    (if was-read-only
-        (toggle-read-only 1))))
+  (let ((autoconvert-xml nil))
+    ;; determine new mode/content-type
+    (unless page-mode
+      (if (cfln-is-version-at-least 4 0)
+          ;; default storage type for 4.0+ is xml.  only auto-convert xml if
+          ;; option is enabled and page-mode was not set explicitly
+          (setq page-mode 'confluence-xml-mode
+                page-content-type 'xml
+                autoconvert-xml confluence-xml-convert-to-wiki-on-load)
+        (setq page-mode 'confluence-mode
+              page-content-type 'wiki)))
+    (if (not (eq major-mode page-mode))
+        (fundamental-mode))
+    ;; now, insert new contents
+    (let ((old-point (point))
+          (was-read-only buffer-read-only))
+      (if was-read-only
+          (toggle-read-only))
+      ;; save/update various page metadata
+      (setq confluence-page-struct full-page)
+      (setq confluence-page-url (cfln-get-url))
+      (setq confluence-page-content-type page-content-type)
+      (setq confluence-page-id (cfln-get-struct-value confluence-page-struct "id"))
+      (setq confluence-load-info 
+            (or load-info
+                (list 'page confluence-page-url confluence-page-id)))
+      (if browse-function
+          (setq confluence-browse-function browse-function))
+      ;; don't save the buffer edits on the undo list (we might keep it)
+      (let ((buffer-undo-list t)
+            (inhibit-read-only t)
+            (page-content (cfln-get-struct-value confluence-page-struct 
+                                                 "content" "")))
+        (when (eq page-content-type 'xml)
+          ;; massage the contents a bit first (trim extra whitespace, add
+          ;; header/footer)
+          (setq page-content
+                (replace-regexp-in-string "[ \t\n]+\\'" ""
+                                          (replace-regexp-in-string "\\`[ \t\n]+" "" page-content)))
+          (setq page-content (concat confluence-xml-page-header
+                                     page-content
+                                     confluence-xml-page-footer))
+          (when autoconvert-xml
+            ;; attempt to convert xml to wiki, leave xml content on failure
+            (condition-case err
+                (progn
+                  (setq page-content 
+                        (cfln-convert-xml-string-to-wiki-string page-content))
+                  (setq page-mode 'confluence-mode
+                        page-content-type 'wiki)
+                  (setq confluence-page-content-type page-content-type))
+                (error 
+                 (message "Could not auto convert xml to wiki format: %s" err)))))
+        (widen)
+        (erase-buffer)
+        ;; actually insert the new page contents
+        (insert page-content)
+        (goto-char old-point))
+      ;; remove the contents from the page metadata
+      (cfln-set-struct-value 'confluence-page-struct "content" "")
+      ;; restore/setup buffer state
+      (set-buffer-modified-p nil)
+      (or keep-undo
+          (eq buffer-undo-list t)
+          (setq buffer-undo-list nil))
+      (funcall page-mode)
+      (if was-read-only
+          (toggle-read-only 1)))))
 
 (defun cfln-show-search-results (search-results load-info)
   "Does the work of finding or creating a buffer for the given confluence
