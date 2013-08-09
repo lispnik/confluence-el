@@ -53,6 +53,10 @@
 ;;   (require 'confluence)
 ;;   (setq confluence-url "http://intranet/confluence/rpc/xmlrpc")
 ;;
+;; There are various additional customzation options.  These can be explored
+;; by executing M-x customize-group and then entering the group "confluence"
+;; (or by browsing the file below).
+;;
 ;; USING CONFLUENCE MODE
 ;;
 ;; To open a page, M-x confluence-get-page and enter the path to the
@@ -75,6 +79,28 @@
 ;;   (local-set-key "\C-xw" confluence-prefix-map)
 ;;   (local-set-key "\M-j" 'confluence-newline-and-indent)
 ;;   (local-set-key "\M-;" 'confluence-list-indent-dwim))
+;;
+;; CONFLUENCE 4.0+
+;;
+;; In confluence version 4.0, Atlassian decided to change the wiki format.
+;; They did away with the "wiki" format and changed the internal document
+;; format to xml.  This makes editing confluence pages via emacs much less
+;; enjoyable.  However, as of version 1.6 of this library, it is possible.
+;; The somewhat simplistic confluence-xml-mode (simplistic compared to
+;; confluence-mode) is an extension of nxml-mode.  It adds some minor
+;; font-lock support, but otherwise leaves you with standard xml editing
+;; support.  Confluence still has built in support for translating wiki format
+;; pages to xml format pages, however, the reverse translation is more
+;; problematic.
+;;
+;; Leveraging the excellent work of Graham Hannington, this package provides a
+;; "basic" converter from xml to wiki format, however it can be "lossy"
+;; depending on what advanced features a page contains.  A confluence xml page
+;; can be converted to the wiki format using M-x
+;; confluence-convert-xml-to-wiki.  This page can be saved as wiki format
+;; (allowing confluence to do the reverse conversion on save) or can be
+;; converted back to xml format using M-x confluence-convert-xml-to-wiki and
+;; then saved (allowing you to check the final content).
 ;;
 ;; LONGLINES
 ;;
@@ -197,17 +223,20 @@ http://intranet/confluence/rpc/xmlrpc.  Setting this in your
   :type 'integer)
 
 (defcustom confluence-prompt-page-function 'confluence-prompt-page-by-component
-  "The function to used to prompt for pages when opening new pages."
+  "The function to used to prompt for pages when opening new
+pages."
   :group 'confluence
   :type 'function)
 
 (defcustom confluence-min-page-completion-length 3
-  "The minimum number of characters at which to attempt page completion.  Set to -1 to disable page completion."
+  "The minimum number of characters at which to attempt page
+completion.  Set to -1 to disable page completion."
   :group 'confluence
   :type 'integer)
 
 (defcustom confluence-min-page-repeat-completion-length 3
-  "The minimum number of new characters at which to re-attempt page completion."
+  "The minimum number of new characters at which to re-attempt
+page completion."
   :group 'confluence
   :type 'integer)
 
@@ -222,21 +251,23 @@ http://intranet/confluence/rpc/xmlrpc.  Setting this in your
   :type '(alist  :key-type string :value-type coding-system))
 
 (defcustom confluence-show-attachment-images window-system
-  "If not nil, attachments which are images will be displayed as such (if
-possible), otherwise images will be treated the same as other attachments."
+  "If not nil, attachments which are images will be displayed as
+such (if possible), otherwise images will be treated the same as
+other attachments."
   :group 'confluence
   :type 'boolean)
 
 (defcustom confluence-save-credentials nil
-  "If not nil, username and password will be saved after entry for subsequent re-login (in memory only).  This is
-useful for long running emacs sessions."
+  "If not nil, username and password will be saved after entry
+for subsequent re-login (in memory only).  This is useful for
+long running emacs sessions."
   :group 'confluence
   :type 'boolean)
 
 (defcustom confluence-save-page-minor-edits 'ask
-  "Whether a page save should be considered a 'minor edit' (no notifications
-sent).  Note, this feature is only enabled if the confluence server is version
-2.10 or higher.
+  "Whether a page save should be considered a 'minor edit' (no
+notifications sent).  Note, this feature is only enabled if the
+confluence server is version 2.10 or higher.
 Possible values:
  `t'   -- Always save pages as minor edits.
  `ask' -- Ask on every page save.
@@ -247,8 +278,9 @@ Possible values:
                  (const :tag "Never" nil)))
 
 (defcustom confluence-save-page-comments 'major
-  "Whether a version comment should be included with a page save.  Note, this
-feature is only enabled if the confluence server is version 2.10 or higher.
+  "Whether a version comment should be included with a page save.
+Note, this feature is only enabled if the confluence server is
+version 2.10 or higher.
 Possible values:
  `t'     -- Always ask for a comment.
  `major' -- Only ask for comments for major edits.
@@ -266,7 +298,8 @@ If nil, auto save is disabled for confluence buffers."
   :type 'string)
 
 (defcustom confluence-xml-reformat-on-load nil
-  "If not nil, confluence xml buffers will be reformated automatically when loaded."
+  "If not nil, confluence xml buffers will be reformated
+automatically when loaded."
   :group 'confluence
   :type 'boolean)
 
@@ -335,6 +368,11 @@ If nil, auto save is disabled for confluence buffers."
 (make-variable-buffer-local 'confluence-load-info)
 (put 'confluence-load-info 'permanent-local t)
 
+(defvar confluence-page-content-type nil
+  "The type of content on this confluence page.")
+(make-variable-buffer-local 'confluence-page-content-type)
+(put 'confluence-page-content-type 'permanent-local t)
+
 (defvar confluence-tag-stack nil
   "TAGs style stack support for push (\\C-xw.) and pop (\\C-xw*)")
 
@@ -362,13 +400,19 @@ If nil, auto save is disabled for confluence buffers."
     ("apos" . "'"))
   "Basic xml entities.")
 
-(defconst confluence-v1-methods '("login" "getServerInfo")
-  "Methods which are always api version 1.")
+(defconst confluence-xml-page-header
+  (concat
+   "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+   "<!DOCTYPE ac:confluence SYSTEM \"confluence.dtd\">\n"
+   "<ac:confluence xmlns:ac=\"http://www.atlassian.com/schema/confluence/4/ac/\" xmlns:ri=\"http://www.atlassian.com/schema/confluence/4/ri/\" xmlns=\"http://www.atlassian.com/schema/confluence/4/\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://www.atlassian.com/schema/confluence/4/ac/ confluence.xsd\">\n")
+  "Implicit xml header for confluence xml pages")
+
+(defconst confluence-xml-page-footer "\n</ac:confluence>"
+  "Implicit xml footer for confluence xml pages")
 
 ;; these are never set directly, only defined here to make the compiler happy
 (defvar confluence-do-coding nil)
 (defvar confluence-input-url nil)
-(defvar confluence-switch-url nil)
 (defvar confluence-no-push nil)
 
 (defun confluence-login (&optional arg)
@@ -393,7 +437,7 @@ re-login to the current url."
             (progn
               (setq cur-token
                     (cfln-rpc-execute-internal 
-                     "login"
+                     "confluence1.login"
                      (setq username
                            (or (car-safe credentials)
                                (read-string (format "Confluence Username [%s]: " user-login-name)
@@ -434,8 +478,7 @@ M-* `confluence-pop-tag-stack')."
   "With ARG, prompts for the confluence url to use for the get
 page call (based on `confluence-default-space-alist')."
   (interactive "P")
-  (let ((confluence-switch-url arg)
-        (confluence-input-url nil))
+  (let ((confluence-input-url (and arg (cfln-prompt-url))))
     (confluence-get-page)))
 
 (defun confluence-get-page-at-point (&optional arg)
@@ -520,8 +563,7 @@ buffer for viewing or downloading it to a local file."
   "With ARG, prompts for the confluence url to use for the get
 attachment call (based on `confluence-default-space-alist')."
   (interactive "P")
-  (let ((confluence-switch-url arg)
-        (confluence-input-url nil))
+  (let ((confluence-input-url (and arg (cfln-prompt-url "Attachment "))))
     (confluence-get-attachment)))
 
 (defun confluence-goto-anchor (&optional anchor-name)
@@ -571,8 +613,7 @@ PAGE-NAME and loads it into a new buffer."
   "With ARG, prompts for the confluence url to use for the create page call
 (based on `confluence-default-space-alist')."
   (interactive "P")
-  (let ((confluence-switch-url arg)
-        (confluence-input-url nil))
+  (let ((confluence-input-url (and arg (cfln-prompt-url))))
     (confluence-create-page)))
 
 (defun confluence-get-related-page (&optional rel-type arg)
@@ -646,7 +687,7 @@ structure of the stack entry.  The structure and the variable
 bindings are:
 
   ((page-type confluence-input-url page-id-or-query &optional 
-    space-name  page-name file-name) old-point)
+    space-name page-name file-name) old-point)
 
 old-point is the point on the page which was pushed.  The 
 preceding list of info is the load-info described in 
@@ -864,7 +905,7 @@ the current buffer."
   "With ARG, prompts for the confluence url to use for the search call (based
 on `confluence-default-space-alist')."
   (interactive "P")
-  (let ((confluence-input-url (and arg (cfln-prompt-url nil))))
+  (let ((confluence-input-url (and arg (cfln-prompt-url))))
     (confluence-search-by-type query-type)))
 
 (defun confluence-preview ()
@@ -881,7 +922,7 @@ on `confluence-default-space-alist')."
               (setq source-content (buffer-string))
               ;; if there are save hooks, copy the content into a temp buf and run them on the content before
               ;; submitting it
-              (let ((cur-before-save-hook (if (cfln-is-xml-content) 
+              (let ((cur-before-save-hook (if (eq confluence-page-content-type 'xml) 
                                               'confluence-xml-before-save-hook
                                             'confluence-before-save-hook)))
                   (if (symbol-value cur-before-save-hook)
@@ -921,9 +962,72 @@ on `confluence-default-space-alist')."
   "With ARG, prompts for the confluence url to use for the get
 info call (based on `confluence-default-space-alist')."
   (interactive "P")
-  (let ((confluence-switch-url arg)
-        (confluence-input-url nil))
+  (let ((confluence-input-url (and arg (cfln-prompt-url))))
     (confluence-get-info)))
+
+(defun confluence-convert-xml-to-wiki ()
+  "Converts the contents of the current page from xml to wiki
+format.  Does nothing if the current page is not xml format."
+  (interactive)
+  (if (not (eq confluence-page-content-type 'xml))
+      (message "Current buffer does not have confluence xml content")
+
+    (let ((conf-dir (file-name-directory (locate-library "confluence")))
+          (tmp-file-name (make-temp-file "confxml"))
+          (xml-content nil)
+          (wiki-content nil))
+
+      ;; first, "revert" current content
+      (run-hooks 'confluence-xml-before-revert-hook)
+      (widen)
+      (setq xml-content (buffer-string))      
+      (setq xml-content (replace-regexp-in-string "\"\\(confluence[.]dtd\\)\""
+                                      (expand-file-name "confluence.dtd" conf-dir)
+                                      xml-content t t 1))
+      (with-temp-file tmp-file-name
+        (insert xml-content))
+      (message "Processing xml content...")
+      (with-current-buffer (get-buffer-create " *Confluence-decode*")
+        (erase-buffer)
+        (let ((convert-status (call-process "xsltproc" nil (current-buffer) nil
+                                            (expand-file-name "confluence2wiki.xsl" conf-dir)
+                                            tmp-file-name)))
+          (unless (eq convert-status 0)
+            (error "Failed converting xml content to wiki format [%s]" convert-status)))        
+        (setq wiki-content (buffer-string)))
+      (message "Finished converting xml content")
+      (delete-file tmp-file-name)
+
+      ;; insert new contents to original buffer
+      (cfln-set-struct-value 'confluence-page-struct "content" wiki-content)
+      (cfln-insert-page confluence-page-struct confluence-load-info confluence-browse-function
+                        nil 'confluence-mode 'wiki))))
+
+(defun confluence-convert-wiki-to-xml ()
+  "Converts the contents of the current page from wiki to xml
+format (assuming the server supports it.  Does nothing if the
+current page is not wiki format."
+  (interactive)
+  (if (not (eq confluence-page-content-type 'wiki))
+      (message "Current buffer does not have confluence wiki content")
+    (if (not (cfln-is-version-at-least 4 0))
+        (message "Current server does not support confluence xml content")
+
+      (let ((wiki-content nil)
+            (xml-content nil))
+
+        ;; first, "revert" current content
+        (run-hooks 'confluence-before-revert-hook)
+        (widen)
+        (setq wiki-content (buffer-string))
+
+        (setq xml-content (cfln-rpc-execute "convertWikiToStorageFormat" wiki-content))
+
+        ;; insert new contents to original buffer
+        (cfln-set-struct-value 'confluence-page-struct "content" xml-content)
+        (cfln-insert-page confluence-page-struct confluence-load-info confluence-browse-function
+                          nil 'confluence-xml-mode 'xml)))))
+
 
 (defun cfln-rpc-execute (method-name &rest params)
   "Executes a confluence rpc call, managing the login token and logging in if
@@ -981,11 +1085,12 @@ necessary."
 
 (defun cfln-get-rpc-method-name (method-name)
   "Determines the actual rpc method name from the given simple method name."
-  (let ((api-prefix (if (and (not (member method-name confluence-v1-methods))
-                             (cfln-is-version-at-least 4 0))
-             "confluence2."
-           "confluence1.")))
-    (concat api-prefix method-name)))
+  (if (string-prefix-p "confluence" method-name)
+      ;; method name is already fully qualified
+      method-name
+    ;; need to determine the appropriate prefix
+    (concat (if (cfln-is-version-at-least 4 0) "confluence2." "confluence1.")
+            method-name)))
 
 (defun cfln-rpc-get-page-by-name (space-name page-name)
   "Executes a confluence 'getPage' rpc call with space and page names."
@@ -1007,11 +1112,12 @@ SPACE-NAME."
 (defun cfln-rpc-save-page (page-struct &optional comment minor-edit)
   "Executes a confluence 'storePage' rpc call with a page struct (or
 'updatePage' if comment or minorEdit flag are specified)."
-  (if (or (cfln-string-notempty comment) minor-edit)
-      (let ((page-options (list (cons "versionComment" (or comment "")) 
-                                (cons "minorEdit" minor-edit))))
-        (cfln-rpc-execute "updatePage" page-struct page-options))
-    (cfln-rpc-execute "storePage" page-struct)))
+  (let ((method-prefix (if (eq confluence-page-content-type 'xml) "confluence2." "confluence1.")))
+    (if (or (cfln-string-notempty comment) minor-edit)
+        (let ((page-options (list (cons "versionComment" (or comment "")) 
+                                  (cons "minorEdit" minor-edit))))
+          (cfln-rpc-execute (concat method-prefix "updatePage") page-struct page-options))
+      (cfln-rpc-execute (concat method-prefix "storePage") page-struct))))
 
 (defun cfln-get-attachment-names ()
   "Gets the names of the attachments for the current page, if a
@@ -1075,7 +1181,7 @@ optional version number."
 
 (defun cfln-rpc-get-server-info ()
   "Executes a confluence 'getServerInfo' rpc call."
-  (cfln-rpc-execute "getServerInfo"))
+  (cfln-rpc-execute "confluence1.getServerInfo"))
 
 (defun cfln-ediff-current-page (update-cur-version)
   "Starts an ediff session for the current confluence page, optionally
@@ -1115,7 +1221,7 @@ page."
           (setq minor-edit (cfln-save-is-minor-edit))
           (setq comment (cfln-save-get-comment minor-edit))))
     (widen)
-    (run-hooks (if (cfln-is-xml-content) 
+    (run-hooks (if (eq confluence-page-content-type 'xml) 
                    'confluence-xml-before-save-hook
                  'confluence-before-save-hook))
     (cfln-insert-page (cfln-rpc-save-page 
@@ -1197,20 +1303,27 @@ and loading the data if necessary."
           (confluence-goto-anchor anchor-name)))
     (switch-to-buffer page-buffer)))
 
-(defun cfln-insert-page (full-page &optional load-info browse-function keep-undo page-mode)
+(defun cfln-insert-page (full-page &optional load-info browse-function keep-undo page-mode page-content-type)
   "Does the work of loading confluence page data into the current buffer.  If
 KEEP-UNDO, the current undo state will not be erased.  The LOAD-INFO is the 
 information necessary to reload the page (if nil, normal page info is used)."
-  ;; if this is an old buffer (already has confluence-mode), run
-  ;; revert hooks before writing new data
-  (if (not page-mode)
-      (setq page-mode (if (cfln-is-xml-content) 
-                          'confluence-xml-mode
-                        'confluence-mode)))
-  (if (eq major-mode page-mode)
-      (run-hooks (if (cfln-is-xml-content) 
+  ;; if this is an old buffer (already has confluence-page-content-type),
+  ;; run revert hooks before writing new data
+  (if confluence-page-content-type
+      (run-hooks (if (eq confluence-page-content-type 'xml) 
                      'confluence-xml-before-revert-hook
                    'confluence-before-revert-hook)))
+  ;; determine new mode/content-type
+  (unless page-mode
+    (if (cfln-is-version-at-least 4 0)
+        ;; default storage type for 4.0+ is xml
+        (setq page-mode 'confluence-xml-mode
+              page-content-type 'xml)
+      (setq page-mode 'confluence-mode
+            page-content-type 'wiki)))
+  (if (not (eq major-mode page-mode))
+      (fundamental-mode))
+  ;; now, insert new contents
   (let ((old-point (point))
         (was-read-only buffer-read-only))
     (if was-read-only
@@ -1218,6 +1331,7 @@ information necessary to reload the page (if nil, normal page info is used)."
     ;; save/update various page metadata
     (setq confluence-page-struct full-page)
     (setq confluence-page-url (cfln-get-url))
+    (setq confluence-page-content-type page-content-type)
     (setq confluence-page-id (cfln-get-struct-value confluence-page-struct "id"))
     (setq confluence-load-info 
           (or load-info
@@ -1226,11 +1340,20 @@ information necessary to reload the page (if nil, normal page info is used)."
         (setq confluence-browse-function browse-function))
     ;; don't save the buffer edits on the undo list (we might keep it)
     (let ((buffer-undo-list t)
-          (inhibit-read-only t))
+          (inhibit-read-only t)
+          (page-content (cfln-get-struct-value confluence-page-struct "content" "")))
+      (when (eq page-content-type 'xml)
+        ;; massage the contents a bit first (trim extra whitespace, add header/footer)
+        (setq page-content
+              (replace-regexp-in-string "[ \t\n]+\\'" ""
+                                        (replace-regexp-in-string "\\`[ \t\n]+" "" page-content)))
+        (setq page-content (concat confluence-xml-page-header
+                                   page-content
+                                   confluence-xml-page-footer)))
       (widen)
       (erase-buffer)
       ;; actually insert the new page contents
-      (insert (cfln-get-struct-value confluence-page-struct "content" ""))
+      (insert page-content)
       (goto-char old-point))
     ;; remove the contents from the page metadata
     (cfln-set-struct-value 'confluence-page-struct "content" "")
@@ -1279,7 +1402,7 @@ search results and loading the data into that page."
       (cfln-set-struct-value 'search-page "content" (buffer-string)))
     ;; install a special browse-function for loading the search urls (which
     ;; use page ids)
-    (cfln-insert-page search-page load-info 'cfln-search-browse-function nil 'confluence-search-mode)))
+    (cfln-insert-page search-page load-info 'cfln-search-browse-function nil 'confluence-search-mode 'wiki)))
 
 (defun cfln-search-browse-function (url)
   "Browse function used in search buffers (the links are page ids)."
@@ -1639,10 +1762,6 @@ the pattern '<temp-dir>/<file-prefix>-<temp-id>.<file-ext>'."
         (and (= cur-major-version major-version)
              (>= cur-minor-version minor-version)))))
 
-(defun cfln-is-xml-content ()
-  "Return t if this confluence has xml content, nil otherwise."
-  (cfln-is-version-at-least 4 0))
-
 (defun cfln-prompt-page-info (prompt-prefix page-name-var space-name-var &optional def-page-name)
   "Prompts for page info using the appropriate input function and sets the given vars appropriately."
   (let ((result-list
@@ -1655,9 +1774,6 @@ the pattern '<temp-dir>/<file-prefix>-<temp-id>.<file-ext>'."
   "Builds a list of (page-name space-name <url>) by prompting the user for each.  Suitable for use with
 `confluence-prompt-page-function'."
   (let ((result-list nil))
-    ;; prompt for url if confluence-switch-url is specified
-    (if (and confluence-switch-url (not confluence-input-url))
-        (setq confluence-input-url (cfln-prompt-url prompt-prefix)))
     ;; now, prompt for space and page if not already defined by caller
     (if (not space-name)
         (setq space-name (cfln-prompt-space-name prompt-prefix)))
@@ -1671,9 +1787,6 @@ the pattern '<temp-dir>/<file-prefix>-<temp-id>.<file-ext>'."
 specified as one path).  Suitable for use with `confluence-prompt-page-function'."
   (let ((result-list nil)
         (page-path nil))
-    ;; prompt for url if confluence-switch-url is specified
-    (if (and confluence-switch-url (not confluence-input-url))
-        (setq confluence-input-url (cfln-prompt-url prompt-prefix)))
     ;; now, prompt for space/page if both are not already defined by caller
     (if (and page-name space-name)
         (setq result-list (cons page-name (cons space-name result-list)))
@@ -1783,12 +1896,19 @@ specified as one path).  Suitable for use with `confluence-prompt-page-function'
            (>= (length tmp-comp-str) confluence-min-page-completion-length))
       (let ((title-query
              (replace-regexp-in-string "\\(\\W\\)" "\\\\\\&" tmp-comp-str t)))
-        (setq title-query (concat "title: " title-query "*"))
+        (setq title-query (concat "title:" title-query))
         (setq cfln-read-last-comp-str tmp-comp-str)
         (with-current-buffer cfln-read-completion-buffer
           (setq cfln-read-current-completions (cfln-result-to-completion-list
                                      (cfln-rpc-search title-query space-name confluence-max-completion-results)
-                                     "title")))
+                                     "title"))
+          (when (= (length cfln-read-current-completions) 0)
+            ;; next, try search w/ '*' (never know which one will work)
+            (setq title-query (concat title-query "*"))
+            (setq cfln-read-current-completions (cfln-result-to-completion-list
+                                                 (cfln-rpc-search title-query space-name
+                                                                  confluence-max-completion-results)
+                                                 "title"))))
         ;; the query results are flaky, if we had results before and none now, reuse the old list
         (if (and (= (length cfln-read-current-completions) 0)
                  old-current-completions)

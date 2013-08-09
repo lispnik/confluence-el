@@ -46,7 +46,7 @@
 ;;; Code:
 
 (require 'confluence-edit)
-(require 'nxml-mode)
+;;(require 'nxml-mode)
 
 (defun confluence-xml-reformat ()
   "Reformats xml to make it readable (respects current selection)."

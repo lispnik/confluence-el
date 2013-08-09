@@ -575,7 +575,8 @@ format block).  note, this is kind of a guessing game because there is
             (goto-char cur-pos)
             (backward-paragraph)
             (setq cur-pos (point))
-            (if (and (< (point) first-match-pos)
+            (if (and (< cur-pos first-match-pos)
+                     (> cur-pos search-start-pos)
                      (re-search-backward "^{\\([^{}\n]+\\)}"
                                          search-start-pos t))
                 (unless (cfln-beginning-of-block-p (match-string 1))
@@ -599,7 +600,8 @@ format block).  note, this is kind of a guessing game because there is
             (goto-char cur-pos)
             (forward-paragraph)
             (setq cur-pos (point))
-            (if (and (> (point) first-match-pos)
+            (if (and (> cur-pos first-match-pos)
+                     (< cur-pos search-end-pos)
                      (re-search-forward "^{\\([^{}\n]+\\)}" 
                                         search-end-pos t))
                 (unless (cfln-end-of-block-p (match-string 1))
