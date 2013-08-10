@@ -97,12 +97,16 @@
 ;; "basic" converter from xml to wiki format, however it can be "lossy"
 ;; depending on what advanced features a page contains.  A confluence xml page
 ;; can be converted to the wiki format using M-x
-;; confluence-convert-xml-to-wiki.  This page can be saved as wiki format
+;; confluence-toggle-page-content-type.  This page can be saved as wiki format
 ;; (allowing confluence to do the reverse conversion on save) or can be
-;; converted back to xml format using M-x confluence-convert-xml-to-wiki and
-;; then saved (allowing you to check the final content).  Note that the
-;; conversion from xml to wiki format requires the external "xsltproc"
-;; program, which is available on most unices and cygwin.
+;; converted back to xml format (using the same commend) and then saved
+;; (allowing you to check the final content).  Note that the conversion from
+;; xml to wiki format requires the external "xsltproc" program, which is
+;; available on most unices and cygwin.
+;;
+;; For the truly brave, you can set the custom variable
+;; confluence-xml-convert-to-wiki-on-load to t in order to automatically
+;; convert xml content to wiki content on page load.
 ;;
 ;; LONGLINES
 ;;
@@ -973,7 +977,16 @@ info call (based on `confluence-default-space-alist')."
   (let ((confluence-input-url (and arg (cfln-prompt-url))))
     (confluence-get-info)))
 
-(defun confluence-convert-xml-to-wiki ()
+(defun confluence-toggle-page-content-type ()
+  "Converts the contents of the current page between xml and wiki
+format.  Does nothing if the current page is not a confluence
+page."
+  (interactive)
+  (if (eq confluence-page-content-type 'xml)
+      (cfln-convert-xml-to-wiki)
+    (cfln-convert-wiki-to-xml)))
+
+(defun cfln-convert-xml-to-wiki ()
   "Converts the contents of the current page from xml to wiki
 format.  Does nothing if the current page is not xml format.
 Note, this function requires the external 'xsltproc' program,
@@ -1022,7 +1035,7 @@ format."
     (delete-file tmp-file-name)
     wiki-content))
 
-(defun confluence-convert-wiki-to-xml ()
+(defun cfln-convert-wiki-to-xml ()
   "Converts the contents of the current page from wiki to xml
 format (assuming the server supports it.  Does nothing if the
 current page is not wiki format."
@@ -1040,7 +1053,9 @@ current page is not wiki format."
         (widen)
         (setq wiki-content (buffer-string))
 
+        (message "Processing wiki content...")
         (setq xml-content (cfln-rpc-execute "convertWikiToStorageFormat" wiki-content))
+        (message "Finished converting wiki content")
 
         ;; insert new contents to original buffer
         (cfln-set-struct-value 'confluence-page-struct "content" xml-content)
