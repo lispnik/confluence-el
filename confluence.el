@@ -93,13 +93,14 @@
 ;; pages to xml format pages, however, the reverse translation is more
 ;; problematic.
 ;;
-;; Leveraging the excellent work of Graham Hannington, this package provides a
-;; "basic" converter from xml to wiki format, however it can be "lossy"
-;; depending on what advanced features a page contains.  A confluence xml page
-;; can be converted to the wiki format using M-x
+;; Leveraging the excellent work of Graham Hannington
+;; (http://www.amnet.net.au/~ghannington/confluence/readme.html), this package
+;; provides a "basic" converter from xml to wiki format, however it can be
+;; "lossy" depending on what advanced features a page contains.  A confluence
+;; xml page can be converted to the wiki format using M-x
 ;; confluence-toggle-page-content-type.  This page can be saved as wiki format
 ;; (allowing confluence to do the reverse conversion on save) or can be
-;; converted back to xml format (using the same commend) and then saved
+;; converted back to xml format (using the same command) and then saved
 ;; (allowing you to check the final content).  Note that the conversion from
 ;; xml to wiki format requires the external "xsltproc" program, which is
 ;; available on most unices and cygwin.
