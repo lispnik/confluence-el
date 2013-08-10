@@ -4,7 +4,7 @@
 
 ;; Author: James Ahlborn <james@boomi.com>
 ;; Keywords: confluence, wiki
-;; Version: 1.6
+;; Version: 1.7-beta
 ;; Package-Requires: 
 ;; EmacsWiki: ConfluenceMode
 
