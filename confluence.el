@@ -7,7 +7,7 @@
 ;; URL: http://code.google.com/p/confluence-el/
 ;; Keywords: confluence, wiki, xmlrpc
 ;; Version: 1.7-beta
-;; Package-Requires: ((xml-rpc "1.6.4") (confluence-edit "1.7-beta") (confluence-xml-edit "1.7-beta"))
+;; Package-Requires: ((xml-rpc "1.6.4"))
 ;; EmacsWiki: ConfluenceMode
 
 ;; This file is NOT part of GNU Emacs.
