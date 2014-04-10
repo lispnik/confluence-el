@@ -413,10 +413,14 @@ automatically converted to wiki format when loaded."
     ("apos" . "'"))
   "Basic xml entities.")
 
-(defconst confluence-xml-page-header
+(defconst confluence-xml-page-decl
   (concat
    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-   "<!DOCTYPE ac:confluence SYSTEM \"confluence.dtd\">\n"
+   "<!DOCTYPE ac:confluence SYSTEM \"confluence.dtd\">\n")
+  "Implicit xml declaration for confluence xml pages")
+
+(defconst confluence-xml-page-header
+  (concat
    "<ac:confluence xmlns:ac=\"http://www.atlassian.com/schema/confluence/4/ac/\" xmlns:ri=\"http://www.atlassian.com/schema/confluence/4/ri/\" xmlns=\"http://www.atlassian.com/schema/confluence/4/\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://www.atlassian.com/schema/confluence/4/ac/ confluence.xsd\">\n")
   "Implicit xml header for confluence xml pages")
 
@@ -1015,12 +1019,14 @@ available on most unices and cygwin."
 format."
   (let ((conf-dir (file-name-directory (locate-library "confluence")))
         (tmp-file-name (make-temp-file "confxml"))
-        (wiki-content nil))
+        (wiki-content nil)
+        (xml-decl confluence-xml-page-decl))
 
-    (setq xml-content (replace-regexp-in-string "\"\\(confluence[.]dtd\\)\""
-                                                (expand-file-name "confluence.dtd" conf-dir)
-                                                xml-content t t 1))
+    (setq xml-decl (replace-regexp-in-string "\"\\(confluence[.]dtd\\)\""
+                                             (expand-file-name "confluence.dtd" conf-dir)
+                                             xml-decl t t 1))
     (with-temp-file tmp-file-name
+      (insert xml-decl)
       (insert xml-content))
     (message "Processing xml content...")
     (with-current-buffer (get-buffer-create " *Confluence-decode*")
