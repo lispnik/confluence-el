@@ -6,7 +6,7 @@
 ;; Author: Kyle Burton <kyle.burton@gmail.com>
 ;; URL: http://code.google.com/p/confluence-el/
 ;; Keywords: confluence, wiki, xmlrpc
-;; Version: 1.7
+;; Version: 1.8-beta
 ;; Package-Requires: ((xml-rpc "1.6.4"))
 ;; EmacsWiki: ConfluenceMode
 
