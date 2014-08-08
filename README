@@ -30,8 +30,10 @@ Some examples:
 USING CONFLUENCE MODE
 ======================================================================
 
-To open a page, M-x confluence-get-page and enter the path to the
-page, for example, to open a page in your home space: ~username/Tasks
+To open a page, M-x confluence-get-page and enter the space name and then the
+page name.  For example, to open a page in your home space "~username/Tasks",
+first enter "~username" for the "Confluence Space:" prompt and then enter
+"Tasks" for the "Confluence Page Name:" prompt.
 
 It is often convienient to bind this to a global key \C-xwf in your .emacs file:
   
